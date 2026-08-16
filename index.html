@@ -81,7 +81,7 @@
 
   // ---------- 3D model (sphere + camera) ----------
   const SPEED   = 1.7;   // rad/s — how fast the snake creeps
-  const TURN    = 3.6;   // rad/s — steering rate
+  const TURN    = 4.2;   // rad/s — steering rate
   const SEG_GAP = 0.145; // arc distance between body segments
 
   let P;      // head world position (unit vector on sphere)
@@ -159,6 +159,8 @@
     // creep along the great circle
     const s = SPEED * dt;
     P = norm(add(mul(oldP, Math.cos(s)), mul(D, Math.sin(s))));
+    // keep D strictly tangent to the new P (the true continuation of the same great circle)
+    D = norm(sub(D, mul(P, dot(D, P))));
 
     // fixed-arc trail: every SEG_GAP of travel becomes a body point
     trail += s;
