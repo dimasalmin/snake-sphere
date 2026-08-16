@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Змея на сфере</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, #0b1120 0%, #05070d 100%);
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #cfe3ff;
+    touch-action: none;
+  }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 16px; letter-spacing: .08em; text-align: center;
+    background: rgba(10, 18, 32, .55); border: 1px solid rgba(96, 165, 250, .25);
+    border-radius: 12px; padding: 8px 22px; backdrop-filter: blur(6px);
+    user-select: none; white-space: nowrap;
+  }
+  #hud b { color: #4ade80; font-size: 18px; }
+  #hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; color: #7d93b8; user-select: none; white-space: nowrap;
+  }
+  #overlay {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center; flex-direction: column;
+    background: rgba(4, 7, 12, .72); backdrop-filter: blur(4px);
+    text-align: center;
+  }
+  #overlay .t { font-size: 42px; font-weight: 700; color: #f87171; margin: 0 0 10px; }
+  #overlay .s { font-size: 20px; margin-bottom: 18px; }
+  #overlay button {
+    font-size: 16px; padding: 10px 28px; border-radius: 10px; cursor: pointer;
+    border: 1px solid #3b82f6; background: rgba(59, 130, 246, .15); color: #dbeafe;
+  }
+  #overlay button:hover { background: rgba(59, 130, 246, .3); }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="hud">Счёт: <b id="score">0</b> &nbsp;•&nbsp; Длина: <b id="len">3</b></div>
+<div id="hint">← → — поворот &nbsp;|&nbsp; Палец: левая/правая половина экрана</div>
+<div id="overlay">
+  <div class="t">Игра окончена</div>
+  <div class="s">Счёт: <span id="final">0</span></div>
+  <button id="btn">Заново (Space)</button>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- vector math on the unit sphere ----------
+  const V = (x, y, z) => ({ x, y, z });
+  const add = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
+  const sub = (a, b) => V(a.x - b.x, a.y - b.y, a.z - b.z);
+  const mul = (a, s) => V(a.x * s, a.y * s, a.z * s);
+  const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+  const cross = (a, b) => V(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+  const len = a => Math.sqrt(dot(a, a));
+  const norm = a => { const l = len(a) || 1; return V(a.x / l, a.y / l, a.z / l); };
+  const lerp = (a, b, t) => add(mul(a, 1 - t), mul(b, t));
+  // great-circle interpolation: a -> b by angle t*ang(a,b)
+  const slerp = (a, b, t) => {
+    const c = Math.max(-1, Math.min(1, dot(a, b)));
+    const th = Math.acos(c);
+    if (th < 1e-6) return mul(a, 1);
+    const s = Math.sin(th);
+    return norm(add(mul(a, Math.sin((1 - t) * th) / s), mul(b, Math.sin(t * th) / s)));
+  };
+  const angBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
+
+  // ---------- 3D model (sphere + camera) ----------
+  const SPEED   = 1.7;   // rad/s — how fast the snake creeps
+  const TURN    = 3.6;   // rad/s — steering rate
+  const SEG_GAP = 0.145; // arc distance between body segments
+
+  let P;      // head world position (unit vector on sphere)
+  let D;      // heading: tangent to the sphere at P
+  let body;   // head trail points, each SEG_GAP arc apart, [P, older, ...]
+  let food;
+  let score;
+  let over;
+
+  // view: camera basis in world space (x, y, z orthonormal; z = line of sight to camera)
+  let vx, vy, vz;
+
+  function reset() {
+    P = V(0, 0, 1);
+    D = V(1, 0, 0);                       // heading: "east"
+    // seed the trail behind the head: fixed length 3, points SEG_GAP apart
+    body = [P];
+    for (let i = 1; i < 3; i++) body.push(slerp(mul(P, -1), P, 1 - i / 3));
+    score = 0;
+    over = false;
+    vz = norm(P);                         // camera looks along head position
+    const ref = Math.abs(vz.y) > 0.99 ? V(1, 0, 0) : V(0, 1, 0);
+    vx = norm(cross(vz, ref));
+    vy = cross(vz, vx);
+    spawnFood();
+    updateHUD();
+    overlay.style.display = 'none';
+  }
+
+  function spawnFood() {
+    for (let i = 0; i < 200; i++) {
+      const u = Math.random() * 2 - 1, ph = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      const c = V(r * Math.cos(ph), r * Math.sin(ph), u);
+      const a = angBetween(c, P);
+      if (a > 0.7 && a < Math.PI - 0.4) { food = c; return; }
+    }
+    food = mul(P, -1);
+  }
+
+  // ---------- input ----------
+  const key = { L: false, R: false };
+  addEventListener('keydown', e => {
+    if (e.code === 'ArrowLeft')  { key.L = true;  e.preventDefault(); }
+    if (e.code === 'ArrowRight') { key.R = true;  e.preventDefault(); }
+    if (e.code === 'Space' && over) reset();
+  });
+  addEventListener('keyup', e => {
+    if (e.code === 'ArrowLeft')  key.L = false;
+    if (e.code === 'ArrowRight') key.R = false;
+  });
+  // touch: left / right half of screen
+  const setTouch = e => {
+    const x = e.touches[0].clientX;
+    key.L = x < innerWidth / 2;
+    key.R = x >= innerWidth / 2;
+  };
+  addEventListener('touchstart', e => { setTouch(e); e.preventDefault(); }, { passive: false });
+  addEventListener('touchmove',  e => { setTouch(e); e.preventDefault(); }, { passive: false });
+  addEventListener('touchend',   () => { key.L = key.R = false; });
+  document.getElementById('btn').addEventListener('click', reset);
+
+  // ---------- game step ----------
+  let trail = 0;   // accumulated arc since last trail point
+  function step(dt) {
+    if (over) return;
+
+    const turn = (key.R ? 1 : 0) - (key.L ? 1 : 0);
+    const oldP = P;
+
+    if (turn !== 0) {
+      D = norm(add(mul(D, Math.cos(turn * TURN * dt)),
+                   mul(cross(P, D), Math.sin(turn * TURN * dt))));
+    }
+    // creep along the great circle
+    const s = SPEED * dt;
+    P = norm(add(mul(oldP, Math.cos(s)), mul(D, Math.sin(s))));
+
+    // fixed-arc trail: every SEG_GAP of travel becomes a body point
+    trail += s;
+    if (trail >= SEG_GAP) {
+      trail -= SEG_GAP;
+      body.unshift(oldP);
+      const want = 3 + score;                 // start length 3, +1 per food
+      if (body.length > want) body.length = want;
+    }
+
+    // food
+    if (angBetween(P, food) < 0.11) {
+      score++;
+      spawnFood();
+      updateHUD();
+    }
+
+    // self collision: the head must stay away from the body.
+    // body[0]..body[2] are the neck (always right behind the head) — skipped;
+    // a real loop must come around at least 0.63 rad.
+    for (let i = 3; i < body.length; i++) {
+      if (angBetween(P, body[i]) < SEG_GAP * 0.55) { gameOver(); break; }
+    }
+  }
+
+  function gameOver() {
+    over = true;
+    document.getElementById('final').textContent = score;
+    overlay.style.display = 'flex';
+  }
+
+  function updateHUD() {
+    document.getElementById('score').textContent = score;
+    document.getElementById('len').textContent = 3 + score;
+  }
+
+  // ---------- rendering ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  let W, H, R, CX, CY, DPR;
+
+  function resize() {
+    DPR = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // the whole sphere always fits in the view, nothing cropped
+    R = Math.min(W, H) * 0.40;
+    CX = W / 2; CY = H / 2;
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  function project(p) {
+    const x = dot(p, vx), y = dot(p, vy), z = dot(p, vz);
+    return { x: CX + x * R, y: CY - y * R, z };
+  }
+
+  function smoothPath(pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    const l = pts[pts.length - 1];
+    ctx.lineTo(l.x, l.y);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // ambient glow behind the sphere
+    const glow = ctx.createRadialGradient(CX, CY, R * 0.6, CX, CY, R * 1.5);
+    glow.addColorStop(0, 'rgba(56, 132, 255, 0.10)');
+    glow.addColorStop(1, 'rgba(56, 132, 255, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    // sphere body
+    const sg = ctx.createRadialGradient(CX - R * 0.35, CY - R * 0.35, R * 0.1, CX, CY, R);
+    sg.addColorStop(0, '#101c33');
+    sg.addColorStop(0.7, '#0a1322');
+    sg.addColorStop(1, '#060b14');
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.fillStyle = sg;
+    ctx.fill();
+
+    // grid on the front hemisphere (shows the rotation)
+    const lines = [];
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const la = lat * Math.PI / 180, r = Math.cos(la), y = Math.sin(la);
+      const pts = [];
+      for (let i = 0; i <= 48; i++) {
+        const th = i / 48 * Math.PI * 2;
+        const w = V(r * Math.cos(th), y, r * Math.sin(th));
+        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
+        pts.push(p);
+      }
+      lines.push(pts);
+    }
+    for (let lon = 0; lon < 180; lon += 30) {
+      const lo = lon * Math.PI / 180;
+      const pts = [];
+      for (let i = 0; i <= 48; i++) {
+        const th = i / 48 * Math.PI * 2;
+        const w = V(Math.cos(th) * Math.cos(lo), Math.sin(th), Math.cos(th) * Math.sin(lo));
+        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
+        pts.push(p);
+      }
+      lines.push(pts);
+    }
+    ctx.lineWidth = 1;
+    for (const ring of lines) {
+      for (let i = 0; i < ring.length - 1; i++) {
+        if (ring[i].z > -0.02 && ring[i + 1].z > -0.02) {
+          const a = Math.min(ring[i].z, ring[i + 1].z);
+          ctx.strokeStyle = 'rgba(96, 165, 250, ' + (0.05 + 0.16 * Math.max(0, a)) + ')';
+          ctx.beginPath();
+          ctx.moveTo(CX + ring[i].x * R, CY - ring[i].y * R);
+          ctx.lineTo(CX + ring[i + 1].x * R, CY - ring[i + 1].y * R);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // rim
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(125, 211, 252, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // ---- everything on the surface, sorted back-to-front ----
+    const segPts = [];
+    for (let i = 0; i < body.length; i++) {
+      const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
+      const n = 2 + Math.floor(angBetween(a, b) / 0.03);
+      for (let k = 0; k <= n; k++) segPts.push(slerp(a, b, k / n));
+    }
+    const foodZ = dot(food, vz);
+    const items = segPts.map(p => ({
+      x: CX + dot(p, vx) * R, y: CY - dot(p, vy) * R, z: dot(p, vz), seg: false
+    }));
+    items.push({ x: CX + dot(food, vx) * R, y: CY - dot(food, vy) * R, z: foodZ, seg: true });
+    items.sort((a, b) => a.z - b.z);
+
+    const pulse = 1 + 0.25 * Math.sin(performance.now() / 200);
+    for (const it of items) {
+      if (it.z < -0.12) continue;                       // hidden by the sphere
+      const depth = Math.max(0, it.z);
+      if (it.seg) {
+        const r = (R * 0.052) * (0.55 + 0.45 * depth) * pulse;
+        ctx.beginPath(); ctx.arc(it.x, it.y, r * 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.12 + 0.25 * depth) + ')'; ctx.fill();
+        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.35 + 0.65 * depth) + ')'; ctx.fill();
+        ctx.beginPath(); ctx.arc(it.x, it.y, r * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(254, 202, 202, ' + (0.5 + 0.5 * depth) + ')'; ctx.fill();
+      } else {
+        const r = R * 0.040 * (0.55 + 0.45 * depth);
+        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(74, 222, 128, ' + (0.30 + 0.70 * depth) + ')';
+        ctx.fill();
+      }
+    }
+
+    // snake body: one smooth ribbon over the segments
+    if (body.length >= 2) {
+      const proj = [];
+      for (let i = 0; i < body.length; i++) {
+        const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
+        const n = 2 + Math.floor(angBetween(a, b) / 0.03);
+        for (let k = 0; k <= n; k++) { const w = slerp(a, b, k / n); proj.push(project(w)); }
+      }
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      smoothPath(proj);
+      ctx.strokeStyle = 'rgba(21, 128, 61, 0.9)';
+      ctx.lineWidth = Math.max(2, R * 0.105);
+      ctx.stroke();
+      smoothPath(proj);
+      ctx.strokeStyle = 'rgba(74, 222, 128, 0.95)';
+      ctx.lineWidth = Math.max(1.2, R * 0.062);
+      ctx.stroke();
+      // neck -> head highlight (head is always in front, at center)
+      const p0 = proj[0], p1 = proj[Math.min(2, proj.length - 1)];
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
+      ctx.strokeStyle = 'rgba(134, 239, 172, 0.9)';
+      ctx.lineWidth = Math.max(1.5, R * 0.07);
+      ctx.stroke();
+    }
+
+    // head — always fixed at the center of the screen
+    const hr = R * 0.075;
+    const hg = ctx.createRadialGradient(CX - hr * 0.3, CY - hr * 0.3, hr * 0.1, CX, CY, hr);
+    hg.addColorStop(0, '#bbf7d0');
+    hg.addColorStop(0.6, '#4ade80');
+    hg.addColorStop(1, '#15803d');
+    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.fillStyle = hg; ctx.fill();
+    ctx.beginPath(); ctx.arc(CX, CY, hr + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(187, 247, 208, 0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // eyes: offset in the current heading direction
+    const dx = CX + dot(D, vx) * hr * 0.45;
+    const dy = CY - dot(D, vy) * hr * 0.45;
+    const px = CX + dot(cross(P, D), vx) * hr * 0.38;
+    const py = CY - dot(cross(P, D), vy) * hr * 0.38;
+    for (const s of [1, -1]) {
+      ctx.beginPath();
+      ctx.arc(dx + s * px, dy + s * py, Math.max(1.2, hr * 0.18), 0, Math.PI * 2);
+      ctx.fillStyle = '#052e16'; ctx.fill();
+    }
+
+    // heading compass (where "north" is after steering)
+    const n1 = norm(add(D, mul(P, 1.6)));
+    const n2 = norm(add(D, mul(P, 0.45)));
+    const a1 = project(n1), a2 = project(n2);
+    if (a1.z > 0 && a2.z > 0) {
+      ctx.beginPath();
+      ctx.moveTo(CX, CY);
+      ctx.lineTo(lerp(a2, a1, 0.25).x, lerp(a2, a1, 0.25).y);
+      ctx.strokeStyle = 'rgba(187, 247, 208, 0.35)';
+      ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+
+  // ---------- main loop ----------
+  // camera: pan/tilt (no roll) — basis rotates rigidly toward the head
+  reset();
+  let last = performance.now();
+  function frame(t) {
+    let dt = (t - last) / 1000;
+    last = t;
+    dt = Math.min(dt, 0.05);
+    const nSub = Math.max(1, Math.ceil(dt / (1 / 120)));
+    for (let i = 0; i < nSub && !over; i++) step(dt / nSub);
+
+    // smooth rotation of the view basis toward P (damped)
+    const k = 1 - Math.exp(-10 * dt);
+    const th = angBetween(vz, P);
+    if (th > 1e-9) {
+      const ax = norm(cross(vz, P));
+      const s = th * k;
+      const rot = q => add(add(mul(q, Math.cos(s)), mul(cross(ax, q), Math.sin(s))), mul(ax, dot(ax, q) * (1 - Math.cos(s))));
+      vx = norm(rot(vx)); vy = rot(vy); vz = rot(vz);
+      // keep the basis orthonormal
+      vx = norm(sub(vx, mul(vz, dot(vx, vz))));
+      vy = cross(vz, vx);
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
