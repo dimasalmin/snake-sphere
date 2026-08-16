@@ -3,73 +3,97 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#141210">
 <title>Змея на сфере</title>
 <style>
   html, body {
     margin: 0; padding: 0;
     width: 100%; height: 100%;
-    background: radial-gradient(ellipse at center, #0b1120 0%, #05070d 100%);
+    background: #141210;
     overflow: hidden;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    color: #cfe3ff;
+    font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+    color: #e8e2d6;
     touch-action: none;
     overscroll-behavior: none;
     -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { display: block; }
+
+  /* верхняя панель: только цифры */
   #hud {
-    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-    font-size: 16px; letter-spacing: .08em; text-align: center;
-    background: rgba(10, 18, 32, .55); border: 1px solid rgba(96, 165, 250, .25);
-    border-radius: 12px; padding: 8px 22px; backdrop-filter: blur(6px);
+    position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 24px; align-items: baseline;
+    font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    color: #8a8375;
+    background: rgba(20, 18, 16, .55);
+    border: 1px solid rgba(232, 226, 214, .08);
+    border-radius: 999px; padding: 9px 24px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     user-select: none; white-space: nowrap;
   }
-  #hud b { color: #4ade80; font-size: 18px; }
-  #hint {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    font-size: 13px; color: #7d93b8; user-select: none; white-space: nowrap;
-  }
+  #hud b { font-size: 18px; letter-spacing: .04em; color: #e8e2d6; font-weight: 600; margin-left: 7px; }
+  #hud .rec b { color: #e0a458; }
+
+  /* оверлей смерти/паузы */
   #overlay {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center; flex-direction: column;
-    background: rgba(4, 7, 12, .72); backdrop-filter: blur(4px);
-    text-align: center;
+    background: rgba(10, 9, 7, .66);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    text-align: center; padding: 24px;
   }
-  #overlay .t { font-size: 42px; font-weight: 700; color: #f87171; margin: 0 0 10px; }
-  #overlay .s { font-size: 20px; margin-bottom: 18px; }
+  #overlay .t { font-size: 34px; font-weight: 600; letter-spacing: .02em; margin: 0 0 6px; color: #e8e2d6; }
+  #overlay .s { font-size: 17px; margin: 0 0 22px; color: #9a9282; }
   #overlay button {
-    font-size: 16px; padding: 10px 28px; border-radius: 10px; cursor: pointer;
-    border: 1px solid #3b82f6; background: rgba(59, 130, 246, .15); color: #dbeafe;
+    font-family: inherit; font-size: 15px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 12px 34px; border-radius: 999px; cursor: pointer;
+    border: 1px solid #e0a458; background: rgba(224, 164, 88, .10); color: #e8c99a;
+    transition: background .2s;
   }
-  #overlay button:hover { background: rgba(59, 130, 246, .3); }
+  #overlay button:hover { background: rgba(224, 164, 88, .25); }
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
-<div id="hud">Счёт: <b id="score">0</b> &nbsp;•&nbsp; Длина: <b id="len">3</b></div>
-<div id="hint">← → — поворот &nbsp;|&nbsp; Палец: левая/правая половина экрана</div>
+<div id="hud">
+  <span>счёт<b id="score">0</b></span>
+  <span>длина<b id="len">3</b></span>
+  <span class="rec">рекорд<b id="rec">0</b></span>
+</div>
 <div id="overlay">
-  <div class="t">Игра окончена</div>
-  <div class="s">Счёт: <span id="final">0</span></div>
-  <button id="btn">Заново (Space)</button>
+  <div class="t" id="ovTitle">Игра окончена</div>
+  <div class="s" id="ovText">Счёт: 0</div>
+  <button id="btn">Заново</button>
 </div>
 
 <script>
 (() => {
   'use strict';
 
-  // ---------- vector math on the unit sphere ----------
+  // ---------- DOM (объявлены ДО reset()) ----------
+  const canvas  = document.getElementById('c');
+  const ctx     = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const elScore = document.getElementById('score');
+  const elLen   = document.getElementById('len');
+  const elRec   = document.getElementById('rec');
+  const elOvT   = document.getElementById('ovTitle');
+  const elOvS   = document.getElementById('ovText');
+  const elBtn   = document.getElementById('btn');
+
+  // ---------- векторная математика на единичной сфере ----------
   const V = (x, y, z) => ({ x, y, z });
   const add = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
   const sub = (a, b) => V(a.x - b.x, a.y - b.y, a.z - b.z);
   const mul = (a, s) => V(a.x * s, a.y * s, a.z * s);
   const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
   const cross = (a, b) => V(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
-  const len = a => Math.sqrt(dot(a, a));
-  const norm = a => { const l = len(a) || 1; return V(a.x / l, a.y / l, a.z / l); };
-  const lerp = (a, b, t) => add(mul(a, 1 - t), mul(b, t));
-  // great-circle interpolation: a -> b by angle t*ang(a,b)
+  const vlen = a => Math.sqrt(dot(a, a));
+  const norm = a => { const l = vlen(a) || 1; return V(a.x / l, a.y / l, a.z / l); };
+  // интерполяция по большому кругу: a -> b на долю t
   const slerp = (a, b, t) => {
     const c = Math.max(-1, Math.min(1, dot(a, b)));
     const th = Math.acos(c);
@@ -78,32 +102,57 @@
     return norm(add(mul(a, Math.sin((1 - t) * th) / s), mul(b, Math.sin(t * th) / s)));
   };
   const angBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
+  // вращение вектора вокруг единичной оси ax на угол a (Родригес)
+  const rotAxis = (q, ax, a) =>
+    add(add(mul(q, Math.cos(a)), mul(cross(ax, q), Math.sin(a))), mul(ax, dot(ax, q) * (1 - Math.cos(a))));
 
-  // ---------- 3D model (sphere + camera) ----------
-  const SPEED   = 1.7;   // rad/s — how fast the snake creeps
-  const TURN    = 4.2;   // rad/s — steering rate
-  const SEG_GAP = 0.145; // arc distance between body segments
+  // ---------- параметры ----------
+  const SPEED     = 1.7;   // рад/с — скорость змеи по сфере
+  const TURN      = 3.8;   // рад/с — предельная скорость поворота
+  const TURN_RAMP = 6.0;   // рад/с² — разгон/торможение руля (плавность входа)
+  const BODY_ARC  = 1.35;  // дуга тела (в радах) при длине 3; +0.45 за каждую еду
 
-  let P;      // head world position (unit vector on sphere)
-  let D;      // heading: tangent to the sphere at P
-  let body;   // head trail points, each SEG_GAP arc apart, [P, older, ...]
+  // ---------- состояние ----------
+  let P, D;        // голова и касательное направление
+  let trail;       // след: плотные точки, [0] — ближайшая к голове
+  let lastSub;     // дуга подшага (для расчёта длины следа)
   let food;
   let score;
   let over;
+  let paused = false;
+  let turnVel = 0; // текущая «скорость руля»
+  let last = performance.now();
 
-  // view: camera basis in world space (x, y, z orthonormal; z = line of sight to camera)
+  // камера: ортонормальный базис, смотрит на голову (в центр экрана)
   let vx, vy, vz;
+
+  const REC_KEY = 'snake_sphere_rec';
+  let best = 0;
+  try { best = parseInt(localStorage.getItem(REC_KEY) || '0', 10) || 0; } catch (e) {}
 
   function reset() {
     P = V(0, 0, 1);
-    D = V(1, 0, 0);                       // heading: "east"
-    // seed the trail behind the head: fixed length 3, points SEG_GAP apart
-    body = [P];
-    for (let i = 1; i < 3; i++) body.push(slerp(mul(P, -1), P, 1 - i / 3));
+    D = V(1, 0, 0);
+    // стартовое тело: дуга BODY_ARC назад по большому кругу.
+    // Голова в P=(0,0,1), движется в +x (D=(1,0,0)) => тело в -x.
+    // Точка на дуге a позади головы: (-sin a, 0, cos a) — вращение P
+    // вокруг оси (0,1,0). Плотная выборка для плавной ленты.
+    trail = [];
+    const stepArc = Math.PI / 240;
+    const n = Math.floor(BODY_ARC / stepArc);
+    for (let i = 0; i <= n; i++) {
+      const a = i * stepArc;
+      trail.push(V(-Math.sin(a), 0, Math.cos(a)));
+    }
     score = 0;
     over = false;
-    vz = norm(P);                         // camera looks along head position
-    const ref = Math.abs(vz.y) > 0.99 ? V(1, 0, 0) : V(0, 1, 0);
+    paused = false;
+    turnVel = 0;
+    vz = norm(P);
+    // базис камеры: устойчивый выбор опорного вектора,
+    // чтобы не вырождаться у «полюсов» (когда vz ∥ ref)
+    let ref = V(0, 1, 0);
+    if (Math.abs(vz.y) > 0.98) ref = V(1, 0, 0);
     vx = norm(cross(vz, ref));
     vy = cross(vz, vx);
     spawnFood();
@@ -122,86 +171,134 @@
     food = mul(P, -1);
   }
 
-  // ---------- input ----------
+  // ---------- ввод ----------
   const key = { L: false, R: false };
   addEventListener('keydown', e => {
     if (e.code === 'ArrowLeft')  { key.L = true;  e.preventDefault(); }
     if (e.code === 'ArrowRight') { key.R = true;  e.preventDefault(); }
     if (e.code === 'Space' && over) reset();
+    if (e.code === 'KeyP' && !over) togglePause();
   });
   addEventListener('keyup', e => {
     if (e.code === 'ArrowLeft')  key.L = false;
     if (e.code === 'ArrowRight') key.R = false;
   });
-  // touch: left / right half of screen
+
+  // сенсор: левая половина экрана — поворот влево, правая — вправо.
+  // Простая и интуитивная схема: нажал куда — туда и повернул.
   const setTouch = e => {
-    const x = e.touches[0].clientX;
-    key.L = x < innerWidth / 2;
-    key.R = x >= innerWidth / 2;
+    const t = e.touches[0];
+    key.L = t.clientX < innerWidth / 2;
+    key.R = !key.L;
   };
-  addEventListener('touchstart', e => { setTouch(e); e.preventDefault(); }, { passive: false });
-  addEventListener('touchmove',  e => { setTouch(e); e.preventDefault(); }, { passive: false });
-  addEventListener('touchend',   () => { key.L = key.R = false; });
-  document.getElementById('btn').addEventListener('click', reset);
+  addEventListener('touchstart', e => {
+    // если на паузе — первый тап её снимает, иначе это уже руление
+    if (paused && !over) { togglePause(); return; }
+    setTouch(e); e.preventDefault();
+  }, { passive: false });
+  addEventListener('touchmove', e => { setTouch(e); e.preventDefault(); }, { passive: false });
+  addEventListener('touchend', () => { key.L = key.R = false; });
 
-  // ---------- game step ----------
-  let trail = 0;   // accumulated arc since last trail point
-  function step(dt) {
+  // тап по экрану при смерти — заново
+  addEventListener('click', () => { if (over) reset(); });
+  const actBtn = e => { e.stopPropagation(); if (paused && !over) togglePause(); else reset(); };
+  elBtn.addEventListener('click', actBtn);
+  elBtn.addEventListener('touchend', e => { e.preventDefault(); actBtn(e); }, { passive: false });
+
+  function togglePause() {
     if (over) return;
+    paused = !paused;
+    if (paused) showOverlay('Пауза', null, 'Далее');
+    else { overlay.style.display = 'none'; elBtn.style.display = 'none'; last = performance.now(); }
+  }
 
-    const turn = (key.R ? 1 : 0) - (key.L ? 1 : 0);
-    const oldP = P;
+  function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
 
-    if (turn !== 0) {
-      D = norm(add(mul(D, Math.cos(turn * TURN * dt)),
-                   mul(cross(P, D), Math.sin(turn * TURN * dt))));
+  // автопауза при сворачивании вкладки
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !over && !paused) togglePause();
+    last = performance.now();
+  });
+
+  // ---------- шаг игры ----------
+  function step(dt) {
+    if (over || paused) return;
+
+    // плавный руль: скорость поворота разгоняется/тормозится без рывков
+    const target = (key.R ? 1 : 0) - (key.L ? 1 : 0);
+    const rate = TURN_RAMP * dt;
+    if (turnVel < target * TURN)      turnVel = Math.min(target * TURN, turnVel + rate);
+    else if (turnVel > target * TURN) turnVel = Math.max(target * TURN, turnVel - rate);
+
+    if (turnVel !== 0) {
+      // Осью поворота служит радиус P (НЕ D×P): вращение D вокруг P
+      // — это именно поворот «вбок» по поверхности сферы (вправо/влево
+      // по экрану), а наклон D×P нос лишь наклонял в меридиане.
+      // D⊥P сохраняется точно (D·P≈0 на каждом шаге).
+      // Знак: +1 (правая половина/стрелка →) уводит нос вправо,
+      //       −1 (левая/←) — влево.
+      D = norm(rotAxis(D, P, turnVel * dt));
     }
-    // creep along the great circle
+    // движение по большому кругу
     const s = SPEED * dt;
-    P = norm(add(mul(oldP, Math.cos(s)), mul(D, Math.sin(s))));
-    // keep D strictly tangent to the new P (the true continuation of the same great circle)
+    P = norm(add(mul(P, Math.cos(s)), mul(D, Math.sin(s))));
+    // страховка: D строго касателен к новому P
     D = norm(sub(D, mul(P, dot(D, P))));
 
-    // fixed-arc trail: every SEG_GAP of travel becomes a body point
-    trail += s;
-    if (trail >= SEG_GAP) {
-      trail -= SEG_GAP;
-      body.unshift(oldP);
-      const want = 3 + score;                 // start length 3, +1 per food
-      if (body.length > want) body.length = want;
-    }
+    // след: плотная точка каждый подшаг; длина тела ограничена дугой
+    trail.unshift(P);
+    lastSub = s;
+    const arc = BODY_ARC + score * 0.45;
+    const maxPts = Math.ceil(arc / lastSub) + 1;
+    if (trail.length > maxPts) trail.length = maxPts;
 
-    // food
+    // еда
     if (angBetween(P, food) < 0.11) {
       score++;
+      if (score > best) { best = score; try { localStorage.setItem(REC_KEY, String(best)); } catch (e) {} }
+      buzz(18);
       spawnFood();
       updateHUD();
     }
 
-    // self collision: the head must stay away from the body.
-    // body[0]..body[2] are the neck (always right behind the head) — skipped;
-    // a real loop must come around at least 0.63 rad.
-    for (let i = 3; i < body.length; i++) {
-      if (angBetween(P, body[i]) < SEG_GAP * 0.55) { gameOver(); break; }
+    // самопересечение: «шея» (первые ~0.6 рад за головой) — это тело
+    // самой змеи, в нём быть рядом не страшно; дальше по следу, если
+    // голова замкнула круг и подошла к телу вплотную — смерть.
+    const neck = 0.6;
+    const hitDist = 0.055;
+    let acc = 0;
+    for (let i = 1; i < trail.length; i++) {
+      acc += angBetween(trail[i - 1], trail[i]);
+      if (acc < neck) continue;
+      if (angBetween(P, trail[i]) < hitDist) { gameOver(); break; }
     }
   }
 
   function gameOver() {
     over = true;
-    document.getElementById('final').textContent = score;
+    buzz([30, 40, 60]);
+    showOverlay('Игра окончена',
+      'Счёт: ' + score + (score > 0 && score >= best ? ' · новый рекорд' : ''));
+  }
+
+  function showOverlay(title, text, btnText) {
+    elOvT.textContent = title;
+    elOvS.textContent = text || '';
+    elOvS.style.display = text ? 'block' : 'none';
+    elBtn.textContent = btnText || 'Заново';
+    elBtn.style.display = 'inline-block';
     overlay.style.display = 'flex';
   }
 
   function updateHUD() {
-    document.getElementById('score').textContent = score;
-    document.getElementById('len').textContent = 3 + score;
+    elScore.textContent = score;
+    elLen.textContent = 3 + score;
+    elRec.textContent = best;
   }
 
-  // ---------- rendering ----------
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
-  const overlay = document.getElementById('overlay');
+  // ---------- отрисовка ----------
   let W, H, R, CX, CY, DPR;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function resize() {
     DPR = Math.min(devicePixelRatio || 1, 2);
@@ -209,18 +306,17 @@
     canvas.width = W * DPR; canvas.height = H * DPR;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // the whole sphere always fits in the view, nothing cropped
-    R = Math.min(W, H) * 0.40;
+    R = Math.min(W, H) * 0.40;   // сфера целиком в кадре, с полем
     CX = W / 2; CY = H / 2;
   }
   addEventListener('resize', resize);
   resize();
 
   function project(p) {
-    const x = dot(p, vx), y = dot(p, vy), z = dot(p, vz);
-    return { x: CX + x * R, y: CY - y * R, z };
+    return { x: CX + dot(p, vx) * R, y: CY - dot(p, vy) * R, z: dot(p, vz) };
   }
 
+  // плавный путь: квадратичные кривые Безье через средние точки
   function smoothPath(pts) {
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -232,186 +328,197 @@
     ctx.lineTo(l.x, l.y);
   }
 
+  // лента с толщиной по глубине: дальние участки тоньше — ощущение объёма.
+  // pts уже отсортированы: [0] — хвост, конец — голова (в центре).
+  function strokeRibbon(pts, baseW) {
+    const SEG = 3;
+    for (let i = 0; i < pts.length - 1; i += SEG) {
+      const j = Math.min(i + SEG, pts.length - 1);
+      const seg = pts.slice(i, j + 1);
+      if (seg.length < 2) continue;
+      const d = seg[seg.length - 1].z;          // глубина у головы сегмента
+      const w = Math.max(baseW * 0.35, baseW * (0.55 + 0.45 * Math.max(0, d)));
+      ctx.strokeStyle = 'rgba(0,0,0,0.30)';
+      ctx.lineWidth = w + Math.max(1.5, baseW * 0.14);
+      smoothPath(seg); ctx.stroke();            // мягкая тень под лентой
+      ctx.strokeStyle = '#e3d5bd';
+      ctx.lineWidth = w;
+      smoothPath(seg); ctx.stroke();            // шкурка
+      ctx.strokeStyle = 'rgba(224, 164, 88, ' + (0.35 + 0.4 * Math.max(0, d)).toFixed(2) + ')';
+      ctx.lineWidth = Math.max(1, w * 0.42);
+      smoothPath(seg); ctx.stroke();            // янтарный отблеск по центру
+    }
+  }
+
   function draw() {
     ctx.clearRect(0, 0, W, H);
 
-    // ambient glow behind the sphere
-    const glow = ctx.createRadialGradient(CX, CY, R * 0.6, CX, CY, R * 1.5);
-    glow.addColorStop(0, 'rgba(56, 132, 255, 0.10)');
-    glow.addColorStop(1, 'rgba(56, 132, 255, 0)');
+    // фон: глубокий тёплый графит
+    const bg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, Math.max(W, H) * 0.75);
+    bg.addColorStop(0, '#1a1713');
+    bg.addColorStop(0.55, '#141210');
+    bg.addColorStop(1, '#0d0c0a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // тёплое свечение-атмосфера позади сферы
+    const glow = ctx.createRadialGradient(CX, CY, R * 0.7, CX, CY, R * 1.45);
+    glow.addColorStop(0, 'rgba(224, 164, 88, 0.07)');
+    glow.addColorStop(1, 'rgba(224, 164, 88, 0)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
 
-    // sphere body
-    const sg = ctx.createRadialGradient(CX - R * 0.35, CY - R * 0.35, R * 0.1, CX, CY, R);
-    sg.addColorStop(0, '#101c33');
-    sg.addColorStop(0.7, '#0a1322');
-    sg.addColorStop(1, '#060b14');
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.fillStyle = sg;
-    ctx.fill();
+    // тело сферы: тёплый свет сверху-слева
+    const sg = ctx.createRadialGradient(CX - R * 0.38, CY - R * 0.42, R * 0.08, CX, CY, R * 1.02);
+    sg.addColorStop(0, '#2c2620');
+    sg.addColorStop(0.45, '#221e19');
+    sg.addColorStop(0.8, '#191613');
+    sg.addColorStop(1, '#12100d');
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.fillStyle = sg; ctx.fill();
 
-    // grid on the front hemisphere (shows the rotation)
-    const lines = [];
+    // сетка меридианов/параллелей — тонкая, показывает вращение сферы
+    ctx.lineWidth = 1;
     for (let lat = -60; lat <= 60; lat += 30) {
       const la = lat * Math.PI / 180, r = Math.cos(la), y = Math.sin(la);
-      const pts = [];
+      let prev = null;
       for (let i = 0; i <= 48; i++) {
         const th = i / 48 * Math.PI * 2;
-        const w = V(r * Math.cos(th), y, r * Math.sin(th));
-        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
-        pts.push(p);
+        const p = project(V(r * Math.cos(th), y, r * Math.sin(th)));
+        if (prev && prev.z > -0.02 && p.z > -0.02) {
+          const a = Math.min(prev.z, p.z);
+          ctx.strokeStyle = 'rgba(232, 226, 214, ' + (0.03 + 0.10 * Math.max(0, a)).toFixed(3) + ')';
+          ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+        prev = p;
       }
-      lines.push(pts);
     }
     for (let lon = 0; lon < 180; lon += 30) {
       const lo = lon * Math.PI / 180;
-      const pts = [];
+      let prev = null;
       for (let i = 0; i <= 48; i++) {
         const th = i / 48 * Math.PI * 2;
-        const w = V(Math.cos(th) * Math.cos(lo), Math.sin(th), Math.cos(th) * Math.sin(lo));
-        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
-        pts.push(p);
-      }
-      lines.push(pts);
-    }
-    ctx.lineWidth = 1;
-    for (const ring of lines) {
-      for (let i = 0; i < ring.length - 1; i++) {
-        if (ring[i].z > -0.02 && ring[i + 1].z > -0.02) {
-          const a = Math.min(ring[i].z, ring[i + 1].z);
-          ctx.strokeStyle = 'rgba(96, 165, 250, ' + (0.05 + 0.16 * Math.max(0, a)) + ')';
-          ctx.beginPath();
-          ctx.moveTo(CX + ring[i].x * R, CY - ring[i].y * R);
-          ctx.lineTo(CX + ring[i + 1].x * R, CY - ring[i + 1].y * R);
-          ctx.stroke();
+        const p = project(V(Math.cos(th) * Math.cos(lo), Math.sin(th), Math.cos(th) * Math.sin(lo)));
+        if (prev && prev.z > -0.02 && p.z > -0.02) {
+          const a = Math.min(prev.z, p.z);
+          ctx.strokeStyle = 'rgba(232, 226, 214, ' + (0.03 + 0.10 * Math.max(0, a)).toFixed(3) + ')';
+          ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
         }
+        prev = p;
       }
     }
 
-    // rim
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // ободок сферы
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(232, 226, 214, 0.28)';
+    ctx.lineWidth = 1.2; ctx.stroke();
 
-    // ---- everything on the surface, sorted back-to-front ----
-    const segPts = [];
-    for (let i = 0; i < body.length; i++) {
-      const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
-      const n = 2 + Math.floor(angBetween(a, b) / 0.03);
-      for (let k = 0; k <= n; k++) segPts.push(slerp(a, b, k / n));
-    }
-    const foodZ = dot(food, vz);
-    const items = segPts.map(p => ({
-      x: CX + dot(p, vx) * R, y: CY - dot(p, vy) * R, z: dot(p, vz), seg: false
-    }));
-    items.push({ x: CX + dot(food, vx) * R, y: CY - dot(food, vy) * R, z: foodZ, seg: true });
-    items.sort((a, b) => a.z - b.z);
+    // ---- предметы на поверхности: еда и тело, отсортированы по глубине ----
+    const items = [{ pt: food, food: true }];
+    for (let i = 0; i < trail.length; i++) items.push({ pt: trail[i], food: false });
+    for (const it of items) it.proj = project(it.pt);
+    items.sort((a, b) => a.proj.z - b.proj.z);
 
-    const pulse = 1 + 0.25 * Math.sin(performance.now() / 200);
+    const t = performance.now() / 1000;
+    const pulse = reducedMotion ? 1 : 1 + 0.22 * Math.sin(t * 3);
+
+    // отрисовка по глубине: дальнее раньше
+    const bodyPts = [];
     for (const it of items) {
-      if (it.z < -0.12) continue;                       // hidden by the sphere
-      const depth = Math.max(0, it.z);
-      if (it.seg) {
-        const r = (R * 0.052) * (0.55 + 0.45 * depth) * pulse;
-        ctx.beginPath(); ctx.arc(it.x, it.y, r * 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.12 + 0.25 * depth) + ')'; ctx.fill();
-        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.35 + 0.65 * depth) + ')'; ctx.fill();
-        ctx.beginPath(); ctx.arc(it.x, it.y, r * 0.45, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(254, 202, 202, ' + (0.5 + 0.5 * depth) + ')'; ctx.fill();
+      const p = it.proj;
+      if (p.z < -0.12) continue;   // за сферой — не рисуем
+      const depth = Math.max(0, p.z);
+      if (it.food) {
+        const r = (R * 0.05) * (0.55 + 0.45 * depth) * pulse;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r * 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(226, 118, 90, ' + (0.10 + 0.18 * depth).toFixed(3) + ')'; ctx.fill();
+        const fg = ctx.createRadialGradient(p.x - r * 0.3, p.y - r * 0.3, r * 0.1, p.x, p.y, r);
+        fg.addColorStop(0, '#f5b28c');
+        fg.addColorStop(0.6, '#e2765a');
+        fg.addColorStop(1, '#b4543e');
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = fg; ctx.fill();
       } else {
-        const r = R * 0.040 * (0.55 + 0.45 * depth);
-        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(74, 222, 128, ' + (0.30 + 0.70 * depth) + ')';
-        ctx.fill();
+        bodyPts.push(p);
       }
     }
 
-    // snake body: one smooth ribbon over the segments
-    if (body.length >= 2) {
-      const proj = [];
-      for (let i = 0; i < body.length; i++) {
-        const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
-        const n = 2 + Math.floor(angBetween(a, b) / 0.03);
-        for (let k = 0; k <= n; k++) { const w = slerp(a, b, k / n); proj.push(project(w)); }
-      }
+    // ---- тело: плавная лента с толщиной по глубине, хвост -> голова ----
+    if (bodyPts.length >= 2) {
+      bodyPts.reverse();            // [0] — хвост, конец — у головы
+      const head = { x: CX, y: CY, z: 1 };
+      bodyPts.push(head);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      smoothPath(proj);
-      ctx.strokeStyle = 'rgba(21, 128, 61, 0.9)';
-      ctx.lineWidth = Math.max(2, R * 0.105);
-      ctx.stroke();
-      smoothPath(proj);
-      ctx.strokeStyle = 'rgba(74, 222, 128, 0.95)';
-      ctx.lineWidth = Math.max(1.2, R * 0.062);
-      ctx.stroke();
-      // neck -> head highlight (head is always in front, at center)
-      const p0 = proj[0], p1 = proj[Math.min(2, proj.length - 1)];
-      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-      ctx.strokeStyle = 'rgba(134, 239, 172, 0.9)';
-      ctx.lineWidth = Math.max(1.5, R * 0.07);
-      ctx.stroke();
+      strokeRibbon(bodyPts, R * 0.088);
     }
 
-    // head — always fixed at the center of the screen
+    // ---- голова: всегда в центре ----
     const hr = R * 0.075;
-    const hg = ctx.createRadialGradient(CX - hr * 0.3, CY - hr * 0.3, hr * 0.1, CX, CY, hr);
-    hg.addColorStop(0, '#bbf7d0');
-    hg.addColorStop(0.6, '#4ade80');
-    hg.addColorStop(1, '#15803d');
+    const halo = ctx.createRadialGradient(CX, CY, hr * 0.8, CX, CY, hr * 2.4);
+    halo.addColorStop(0, 'rgba(224, 164, 88, 0.16)');
+    halo.addColorStop(1, 'rgba(224, 164, 88, 0)');
+    ctx.beginPath(); ctx.arc(CX, CY, hr * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = halo; ctx.fill();
+
+    const hg = ctx.createRadialGradient(CX - hr * 0.35, CY - hr * 0.35, hr * 0.1, CX, CY, hr);
+    hg.addColorStop(0, '#f2e6cf');
+    hg.addColorStop(0.55, '#e3d5bd');
+    hg.addColorStop(1, '#c9b48e');
     ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
     ctx.fillStyle = hg; ctx.fill();
-    ctx.beginPath(); ctx.arc(CX, CY, hr + 3, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(187, 247, 208, 0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
-    // eyes: offset in the current heading direction
+    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(224, 164, 88, 0.55)';
+    ctx.lineWidth = 1.4; ctx.stroke();
+
+    // глаза — смотрят по D; боковой вектор = P × D (касательный)
+    const side = cross(P, D);
     const dx = CX + dot(D, vx) * hr * 0.45;
     const dy = CY - dot(D, vy) * hr * 0.45;
-    const px = CX + dot(cross(P, D), vx) * hr * 0.38;
-    const py = CY - dot(cross(P, D), vy) * hr * 0.38;
-    for (const s of [1, -1]) {
+    const px = CX + dot(side, vx) * hr * 0.38;
+    const py = CY - dot(side, vy) * hr * 0.38;
+    for (const sgn of [1, -1]) {
       ctx.beginPath();
-      ctx.arc(dx + s * px, dy + s * py, Math.max(1.2, hr * 0.18), 0, Math.PI * 2);
-      ctx.fillStyle = '#052e16'; ctx.fill();
+      ctx.arc(dx + sgn * px, dy + sgn * py, Math.max(1.2, hr * 0.17), 0, Math.PI * 2);
+      ctx.fillStyle = '#3a2e1e'; ctx.fill();
     }
 
-    // heading compass (where "north" is after steering)
-    const n1 = norm(add(D, mul(P, 1.6)));
-    const n2 = norm(add(D, mul(P, 0.45)));
-    const a1 = project(n1), a2 = project(n2);
-    if (a1.z > 0 && a2.z > 0) {
+    // короткая стрелка направления впереди головы
+    const n1 = norm(add(D, mul(P, 0.5)));
+    const a1 = project(n1);
+    if (a1.z > 0.05) {
+      const tx = CX + (a1.x - CX) * 0.30, ty = CY + (a1.y - CY) * 0.30;
       ctx.beginPath();
       ctx.moveTo(CX, CY);
-      ctx.lineTo(lerp(a2, a1, 0.25).x, lerp(a2, a1, 0.25).y);
-      ctx.strokeStyle = 'rgba(187, 247, 208, 0.35)';
+      ctx.lineTo(tx, ty);
+      ctx.strokeStyle = 'rgba(224, 164, 88, 0.5)';
       ctx.lineWidth = 2; ctx.stroke();
     }
   }
 
-  // ---------- main loop ----------
-  // camera: pan/tilt (no roll) — basis rotates rigidly toward the head
+  // ---------- главный цикл ----------
   reset();
-  let last = performance.now();
   function frame(t) {
     let dt = (t - last) / 1000;
     last = t;
-    dt = Math.min(dt, 0.05);
+    dt = Math.min(dt, 0.05);   // защита от рывка после зависшего фрейма
+
+    // фиксированный подшаг: стабильная физика на любом FPS
     const nSub = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < nSub && !over; i++) step(dt / nSub);
 
-    // smooth rotation of the view basis toward P (damped)
-    const k = 1 - Math.exp(-10 * dt);
-    const th = angBetween(vz, P);
-    if (th > 1e-9) {
-      const ax = norm(cross(vz, P));
-      const s = th * k;
-      const rot = q => add(add(mul(q, Math.cos(s)), mul(cross(ax, q), Math.sin(s))), mul(ax, dot(ax, q) * (1 - Math.cos(s))));
-      vx = norm(rot(vx)); vy = rot(vy); vz = rot(vz);
-      // keep the basis orthonormal
-      vx = norm(sub(vx, mul(vz, dot(vx, vz))));
-      vy = cross(vz, vx);
+    // плавный доворот камеры на голову (экспоненциальное демпфирование)
+    if (!paused) {
+      const k = 1 - Math.exp(-10 * dt);
+      const th = angBetween(vz, P);
+      if (th > 1e-9) {
+        const ax = norm(cross(vz, P));
+        const s = th * k;
+        vx = norm(rotAxis(vx, ax, s));
+        vy = rotAxis(vy, ax, s);
+        vz = rotAxis(vz, ax, s);
+        vx = norm(sub(vx, mul(vz, dot(vx, vz))));
+        vy = cross(vz, vx);
+      }
     }
     draw();
     requestAnimationFrame(frame);
