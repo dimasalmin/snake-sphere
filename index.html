@@ -108,10 +108,11 @@
     add(add(mul(q, Math.cos(a)), mul(cross(ax, q), Math.sin(a))), mul(ax, dot(ax, q) * (1 - Math.cos(a))));
 
   // ---------- параметры ----------
-  const SPEED     = 1.7;   // рад/с — скорость змеи по сфере
+  const SPEED     = 1.30;  // рад/с — скорость змеи по сфере (первый круг ~16 с)
   const TURN      = 4.6;   // рад/с — предельная скорость поворота
   const TURN_RAMP = 16.0;  // рад/с² — разгон/торможение руля (быстрый отклик)
-  const BODY_ARC  = 0.8;   // дуга тела (в радах) при длине 3; +0.45 за каждую еду
+  const SEG_ARC   = 0.22;  // дуга одного сегмента тела (радианы)
+  const START_SEG = 3;     // стартовая длина в сегментах; +1 за каждый шар
 
   // ---------- состояние ----------
   let P, D;        // голова и касательное направление
@@ -134,13 +135,14 @@
   function reset() {
     P = V(0, 0, 1);
     D = V(1, 0, 0);
-    // стартовое тело: дуга BODY_ARC назад по большому кругу.
+    // стартовое тело: START_SEG сегментов назад по большому кругу.
     // Голова в P=(0,0,1), движется в +x (D=(1,0,0)) => тело в -x.
     // Точка на дуге a позади головы: (-sin a, 0, cos a) — вращение P
     // вокруг оси (0,1,0). Плотная выборка для плавной ленты.
     trail = [];
+    const startArc = (START_SEG - 1) * SEG_ARC;
     const stepArc = Math.PI / 240;
-    const n = Math.floor(BODY_ARC / stepArc);
+    const n = Math.max(1, Math.round(startArc / stepArc));
     for (let i = 0; i <= n; i++) {
       const a = i * stepArc;
       trail.push(V(-Math.sin(a), 0, Math.cos(a)));
@@ -248,10 +250,11 @@
     // страховка: D строго касателен к новому P
     D = norm(sub(D, mul(P, dot(D, P))));
 
-    // след: плотная точка каждый подшаг; длина тела ограничена дугой
+    // след: плотная точка каждый подшаг; длина тела = (3 + score) сегментов
     trail.unshift(P);
     lastSub = s;
-    const arc = BODY_ARC + score * 0.45;
+    const segCount = START_SEG + score;
+    const arc = (segCount - 1) * SEG_ARC;
     const maxPts = Math.ceil(arc / lastSub) + 1;
     if (trail.length > maxPts) trail.length = maxPts;
 
@@ -417,44 +420,55 @@
     ctx.strokeStyle = 'rgba(232, 226, 214, 0.28)';
     ctx.lineWidth = 1.2; ctx.stroke();
 
-    // ---- предметы на поверхности: еда и тело, отсортированы по глубине ----
-    const items = [{ pt: food, food: true }];
-    for (let i = 0; i < trail.length; i++) items.push({ pt: trail[i], food: false });
-    for (const it of items) it.proj = project(it.pt);
-    items.sort((a, b) => a.proj.z - b.proj.z);
-
+    // ---- еда на поверхности (отдельная функция: рисуется до или после
+    // тела в зависимости от окклюзии — см. ниже) ----
     const t = performance.now() / 1000;
     const pulse = reducedMotion ? 1 : 1 + 0.22 * Math.sin(t * 3);
+    const f = project(food);
+    const drawFood = () => {
+      const depth = Math.max(0, f.z);
+      const r = (R * 0.05) * (0.55 + 0.45 * depth) * pulse;
+      ctx.beginPath(); ctx.arc(f.x, f.y, r * 2.6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(226, 118, 90, ' + (0.10 + 0.18 * depth).toFixed(3) + ')'; ctx.fill();
+      const fg = ctx.createRadialGradient(f.x - r * 0.3, f.y - r * 0.3, r * 0.1, f.x, f.y, r);
+      fg.addColorStop(0, '#f5b28c');
+      fg.addColorStop(0.6, '#e2765a');
+      fg.addColorStop(1, '#b4543e');
+      ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fg; ctx.fill();
+    };
 
-    // отрисовка по глубине: дальнее раньше
+    // ---- тело: плавная лента строго в порядке хвост -> голова.
+    // Точки НЕ сортируются по глубине: при довороте камеры порядок
+    // перемешивается, и лента «стреляла» прямой через сферу. Голова
+    // всегда в центре (z=1), поэтому последовательная отрисовка
+    // хвост->голова даёт и правильное перекрытие при самопересечении. ----
     const bodyPts = [];
-    for (const it of items) {
-      const p = it.proj;
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const p = project(trail[i]);
       if (p.z < -0.12) continue;   // за сферой — не рисуем
-      const depth = Math.max(0, p.z);
-      if (it.food) {
-        const r = (R * 0.05) * (0.55 + 0.45 * depth) * pulse;
-        ctx.beginPath(); ctx.arc(p.x, p.y, r * 2.6, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(226, 118, 90, ' + (0.10 + 0.18 * depth).toFixed(3) + ')'; ctx.fill();
-        const fg = ctx.createRadialGradient(p.x - r * 0.3, p.y - r * 0.3, r * 0.1, p.x, p.y, r);
-        fg.addColorStop(0, '#f5b28c');
-        fg.addColorStop(0.6, '#e2765a');
-        fg.addColorStop(1, '#b4543e');
-        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = fg; ctx.fill();
-      } else {
-        bodyPts.push(p);
-      }
+      bodyPts.push(p);
     }
-
-    // ---- тело: плавная лента с толщиной по глубине, хвост -> голова ----
+    // еда рисуется перед телом, если тело ближе к камере в точке
+    // пересечения (иначе лента перекрывает еду корректно),
+    // и после, если еда впереди — по сравнению с ближайшей точкой тела
+    let drawFoodAfterBody = false;
+    if (f.z > -0.05 && bodyPts.length) {
+      let bd = Infinity, bz = 0;
+      for (const p of bodyPts) {
+        const dx = p.x - f.x, dy = p.y - f.y, d2 = dx * dx + dy * dy;
+        if (d2 < bd) { bd = d2; bz = p.z; }
+      }
+      drawFoodAfterBody = bd < (R * 0.16) ** 2 && f.z > bz;
+    }
+    if (f.z > -0.05 && !drawFoodAfterBody) drawFood();
     if (bodyPts.length >= 2) {
-      bodyPts.reverse();            // [0] — хвост, конец — у головы
       const head = { x: CX, y: CY, z: 1 };
-      bodyPts.push(head);
+      bodyPts.push(head);          // конец — у головы
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       strokeRibbon(bodyPts, R * 0.088);
     }
+    if (drawFoodAfterBody) drawFood();
 
     // ---- голова: всегда в центре ----
     const hr = R * 0.075;
