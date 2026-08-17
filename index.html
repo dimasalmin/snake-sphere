@@ -572,6 +572,29 @@
       smoothPath(seg); ctx.stroke();            // блик по оси трубы
       ctx.globalAlpha = 1;
     }
+    // «горлышко»: сужение от полноразмерной трубы к узкому стыку у головы.
+    // Без него у головы лента шире самого патрубка и на повороте её
+    // «губчатый» край торчит сбоку/спереди (выглядит как хвост из фронта).
+    if (pts.length >= 2) {
+      const h = pts[pts.length - 1];
+      const p2 = pts[pts.length - 2];
+      const ang = Math.atan2(h.y - p2.y, h.x - p2.x);
+      const neck = Math.min(R * 0.11, R * 0.05 * (0.55 + 0.45 * Math.max(0, h.z)));
+      const half = Math.max(1.5, baseW * 0.32); // узкий вход в патрубок
+      const px = Math.cos(ang + Math.PI / 2), py = Math.sin(ang + Math.PI / 2);
+      const draw = s => {
+        ctx.beginPath();
+        ctx.moveTo(h.x - px * half, h.y - py * half);
+        ctx.lineTo(p2.x + px * neck, p2.y + py * neck);
+        ctx.lineTo(p2.x - px * neck, p2.y - py * neck);
+        ctx.lineTo(h.x + px * half, h.y + py * half);
+        ctx.closePath(); ctx.fillStyle = s.f; ctx.fill();
+        ctx.strokeStyle = s.k; ctx.lineWidth = s.lw; ctx.stroke();
+      };
+      draw({ f: 'rgba(8, 10, 14, 0.65)', k: 'rgba(8, 10, 14, 0.65)', lw: 1 });       // фланец
+      draw({ f: '#b5754a', k: 'rgba(60, 38, 18, 0.7)', lw: 1 });                   // медь
+      ctx.globalAlpha = 1;
+    }
   }
 
   function draw() {
@@ -685,9 +708,9 @@
 
     // ---- тело: плавная лента строго в порядке хвост -> голова.
     // Точки НЕ сортируются по глубине: при довороте камеры порядок
-    // перемешивается, и лента «стреляла» прямой через сферу. Голова
-    // всегда в центре (z=1), поэтому последовательная отрисовка
-    // хвост->голова даёт и правильное перекрытие при самопересечении. ----
+    // перемешивается, и лента «стреляла» прямой через сферу. Последняя
+    // точка — истинная проекция головы project(P) (z≈1, всегда видима),
+    // последовательная отрисовка хвост->голова даёт корректное перекрытие. ----
     const bodyPts = [];
     for (let i = trail.length - 1; i >= 0; i--) {
       const p = project(trail[i]);
@@ -707,38 +730,47 @@
       (bd < (R * 0.16) ** 2 && fp.f.z > bz) ? foodsFront.push(fp) : foodsBehind.push(fp);
     }
     for (const fp of foodsBehind) drawFood(fp, fp.fo.kind);
+    // Истинная экранная позиция головы: project(P). Камера демпфированная,
+    // поэтому при повороте голова «опережает» фиксированный центр на ~20px
+    // (в сторону носа). И конец ленты, и сам диск головы рисуются в этой точке —
+    // иначе последний участок трубы пролегает через переднюю половину диска
+    // (эффект «хвоста из переднего края»).
+    const hp = project(P);
     if (bodyPts.length >= 2) {
-      const head = { x: CX, y: CY, z: 1 };
-      bodyPts.push(head);          // конец — у головы
+      // trail[0] === P, поэтому последняя точка уже ≈ hp; подменяем её на
+      // точную проекцию (страховка от накопления ошибок нормализации).
+      bodyPts[bodyPts.length - 1] = hp;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       strokeRibbon(bodyPts, R * 0.088);
     }
     for (const fp of foodsFront) drawFood(fp, fp.fo.kind);
 
-    // ---- голова: всегда в центре — медный патрубок, без линии направления ----
+    // ---- голова: в истинной проекции P (hp) — медный патрубок ----
+    // При повороте камера отстаёт от P, и hp уходит от центра в сторону
+    // движения; труба теперь входит в голову строго сзади, без «хвоста из фронта».
     const hr = R * 0.075;
-    const halo = ctx.createRadialGradient(CX, CY, hr * 0.8, CX, CY, hr * 2.4);
+    const halo = ctx.createRadialGradient(hp.x, hp.y, hr * 0.8, hp.x, hp.y, hr * 2.4);
     halo.addColorStop(0, 'rgba(224, 164, 88, 0.18)');
     halo.addColorStop(1, 'rgba(224, 164, 88, 0)');
-    ctx.beginPath(); ctx.arc(CX, CY, hr * 2.4, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(hp.x, hp.y, hr * 2.4, 0, Math.PI * 2);
     ctx.fillStyle = halo; ctx.fill();
 
-    const hg = ctx.createRadialGradient(CX - hr * 0.35, CY - hr * 0.35, hr * 0.1, CX, CY, hr);
+    const hg = ctx.createRadialGradient(hp.x - hr * 0.35, hp.y - hr * 0.35, hr * 0.1, hp.x, hp.y, hr);
     hg.addColorStop(0, '#f0c48c');
     hg.addColorStop(0.55, '#d99a55');
     hg.addColorStop(1, '#a56a38');
-    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(hp.x, hp.y, hr, 0, Math.PI * 2);
     ctx.fillStyle = hg; ctx.fill();
-    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(hp.x, hp.y, hr, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(60, 38, 18, 0.7)';
     ctx.lineWidth = 1.6; ctx.stroke();
 
     // глаза — смотрят по D; боковой вектор = P × D (касательный)
     const side = cross(P, D);
-    const dx = CX + dot(D, vx) * hr * 0.45;
-    const dy = CY - dot(D, vy) * hr * 0.45;
-    const px = CX + dot(side, vx) * hr * 0.38;
-    const py = CY - dot(side, vy) * hr * 0.38;
+    const dx = hp.x + dot(D, vx) * hr * 0.45;
+    const dy = hp.y - dot(D, vy) * hr * 0.45;
+    const px = hp.x + dot(side, vx) * hr * 0.38;
+    const py = hp.y - dot(side, vy) * hr * 0.38;
     for (const sgn of [1, -1]) {
       ctx.beginPath();
       ctx.arc(dx + sgn * px, dy + sgn * py, Math.max(1.2, hr * 0.17), 0, Math.PI * 2);
@@ -746,22 +778,21 @@
     }
 
     // нос (насадка) — выступает вперёд по D: кончик трубы, куда идёт вода.
-    // рисуетСЯ ПЕРЕД кругом головы, чтобы база скрывалась под ним.
     // Длина ≈ hitDist (0.055 рад): визуально нос касается трубы ровно
     // в тот момент, когда срабатывает коллизия.
     const ddx = dot(D, vx), ddy = -dot(D, vy);
     const noseLen = hr * 0.75, noseW = hr * 0.52;
     const perpX = -ddy, perpY = ddx;
-    const tipX = CX + ddx * noseLen, tipY = CY + ddy * noseLen;
-    const ng = ctx.createLinearGradient(CX, CY, tipX, tipY);
+    const tipX = hp.x + ddx * noseLen, tipY = hp.y + ddy * noseLen;
+    const ng = ctx.createLinearGradient(hp.x, hp.y, tipX, tipY);
     ng.addColorStop(0, '#c8874e');
     ng.addColorStop(0.6, '#e0b072');
     ng.addColorStop(1, '#f4d29a');
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(CX + perpX * noseW, CY + perpY * noseW);
+    ctx.moveTo(hp.x + perpX * noseW, hp.y + perpY * noseW);
     ctx.lineTo(tipX, tipY);
-    ctx.lineTo(CX - perpX * noseW, CY - perpY * noseW);
+    ctx.lineTo(hp.x - perpX * noseW, hp.y - perpY * noseW);
     ctx.closePath();
     ctx.fillStyle = ng; ctx.fill();
     ctx.strokeStyle = 'rgba(60, 38, 18, 0.6)';
@@ -911,6 +942,24 @@
       return true;
     },
     kill: () => { if (!over) { gameOver(); return true; } return false; },
+    // test-хук: геометрия стыка «лента-голова» в экранных координатах
+    // (для диагностики «хвост из переднего края» при поворотах)
+    get headGeo() {
+      if (!trail || trail.length < 2) return null;
+      const hp = project(P);
+      const t0 = project(trail[0]);
+      const t1 = project(trail[Math.min(1, trail.length - 1)]);
+      const t2 = trail.length > 3 ? project(trail[2]) : t1;
+      const ddx = dot(D, vx), ddy = -dot(D, vy);
+      const norm2 = (a, b) => { const l = Math.hypot(a, b) || 1; return [a / l, b / l]; };
+      const dir = (a, b) => norm2(a.x - b.x, a.y - b.y);
+      return {
+        head: [hp.x, hp.y], trail0: [t0.x, t0.y], trail1: [t1.x, t1.y], trail2: [t2.x, t2.y],
+        noseDir: norm2(ddx, ddy),
+        segHead: dir(hp, t1),   // направление «голова -> первый пункт следа»
+        segFirst: dir(t1, t2),  // направление первого следового сегмента
+      };
+    },
   };
 })();
 </script>
