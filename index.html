@@ -86,9 +86,9 @@
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
 <div id="hud">
-  <span>счёт<b id="score">0</b></span>
-  <span>длина<b id="len">3</b></span>
-  <span class="rec">рекорд<b id="rec">0</b></span>
+  <span>длина<b id="score">0.0</b> м</span>
+  <span>капли<b id="len">0</b></span>
+  <span class="rec">рекорд<b id="rec">0.0</b> м</span>
   <button id="pauseBtn" title="Пауза (P)">⏸</button>
 </div>
 <canvas id="minimap"></canvas>
@@ -150,6 +150,11 @@
   const START_ARC = (START_SEG - 1) * SEG_ARC; // стартовая длина тела, рад
   const MAX_BODY_ARC = 2.8; // потолок длины тела (~160°): длиннее — труба
                             // обнимает сферу и у границы сходит в «прямую»
+  // Метрическая шкала сферы: радиус игрового мира в метрах.
+  // Длина трубы (м) = bodyArc (рад) × R_SPHERE_M — длина дуги на сфере.
+  // При R=5: старт 0.22 рад = 1.1 м, потолок 2.8 рад = 14.0 м.
+  const R_SPHERE_M = 5;
+  const mLen = a => a * R_SPHERE_M;   // рад -> метры
   // буст: удержание -> разгон, но тело «подтекает» (стандарт io-механики)
   const BOOST_MULT = 1.6;  // множитель скорости в бусте
   const BOOST_DRAIN = 0.55;// рад/с — темп таяния тела в бусте
@@ -179,7 +184,8 @@
   let foods;       // [ {v, kind}, ... ] — капли на сфере
   let camZoom = 1; // отдаление камеры при росте тела (1 = стартовое)
   let boosting = false; // сейчас идёт буст
-  let bodyArc = 0;      // текущая длина тела в радианах (может таять в бусте)
+  let bodyArc = START_ARC; // текущая длина сети (радиан)
+  let peakArc = START_ARC; // макс. длина за заезд — метрика лидеров
   let shake = 0;        // тряска камеры (секунд, затухает)
   let slowmo = 1;       // множитель времени при смерти (0.25 = слоу-мо)
   let score;
@@ -213,9 +219,12 @@
   // камера: ортонормальный базис, смотрит на голову (в центр экрана)
   let vx, vy, vz;
 
-  const REC_KEY = 'snake_sphere_rec';
+  // Рекорд — пиковая длина трубы в метрах (не число капель). Ключ новый,
+  // чтобы старый «score» в каплях (неограниченный) не читался как метры
+  // и не давал небьющийся рекорд (потолок длины = 14.0 м).
+  const REC_KEY = 'snake_sphere_rec_m';
   let best = 0;
-  try { best = parseInt(localStorage.getItem(REC_KEY) || '0', 10) || 0; } catch (e) {}
+  try { best = parseFloat(localStorage.getItem(REC_KEY) || '0') || 0; } catch (e) {}
 
   function reset() {
     P = V(0, 0, 1);
@@ -241,7 +250,8 @@
     shake = 0;
     slowmo = 1;
     camZoom = 1;
-    bodyArc = START_ARC; // текущая длина тела в радианах
+    bodyArc = START_ARC; // длина сети на старте
+    peakArc = START_ARC;
     foods = [];
     for (let i = 0; i < FOOD_N; i++) spawnFood();
     vz = norm(P);
@@ -260,9 +270,10 @@
     elOvT.textContent = 'Змейка-Монтажник';
     elOvS.innerHTML = 'Левая / правая половина экрана — поворот.<br>' +
       'Съедай капли воды и расти, но не кусай себя в хвост:<br>каждый поворот оставляет за тобой медный трубопровод.<br><br>' +
+      '<b>Счёт = длина твоей трубы в метрах.</b> Рекорд держит самую длинную разводку.<br>' +
       '<b>Два пальца — буст:</b> труба разгоняется, но подтекает.<br>' +
       'Труба всё время подтекает — пей капли, держи разводку.<br>' +
-      'Золотая капля = +3 и отрыв по длине.';
+      'Золотая капля = +3 капли и отрыв по длине.';
     elBtn.textContent = 'К работе';
     elBtn.style.display = 'inline-block';
     overlay.style.display = 'flex';
@@ -299,6 +310,7 @@
   // ---------- ввод ----------
   const key = { L: false, R: false };
   let boostKey = false;   // клавиша/кнопка буста зажата
+  let steerId = null;     // identifier пальца-руля; второй палец — только буст
   function startGame() {
     if (started) return;
     started = true;
@@ -330,28 +342,46 @@
   addEventListener('contextmenu', e => e.preventDefault());
 
   // сенсор: левая половина экрана — поворот влево, правая — вправо.
-  // Простая и интуитивная схема: нажал куда — туда и повернул.
+  // Палец-руль закреплён по identifier: его назначает ТОЛЬКО touchstart
+  // (при пустом руле). Второй палец — только буст: он никогда не забирает
+  // руль, поэтому при отпускании пальца-руля поворот плавно останавливается,
+  // а не «перескакивает» в сторону буст-пальца.
   const setTouch = e => {
-    const t = e.touches[0];
-    key.L = t.clientX < innerWidth / 2;
-    key.R = !key.L;
-    // два пальца — буст (первый палец продолжает рулить)
-    boostKey = e.touches.length >= 2;
+    const n = e.touches.length;
+    // два пальца — буст (в step() действует только после START_ARC)
+    boostKey = n >= 2;
+    if (n === 0) { key.L = key.R = false; steerId = null; return; }
+    // ищем закреплённый палец-руль среди активных
+    let steer = null;
+    if (steerId !== null) {
+      for (let i = 0; i < n; i++) {
+        if (e.touches[i].identifier === steerId) { steer = e.touches[i]; break; }
+      }
+    }
+    if (steer) {
+      key.L = steer.clientX < innerWidth / 2;
+      key.R = !key.L;
+    } else {
+      // палец-руль отпущен: руль пуст (перепривязка — только на touchstart)
+      key.L = key.R = false;
+      steerId = null;
+    }
   };
   addEventListener('touchstart', e => {
     if (!started) { startGame(); return; } // первый тап запускает
     // если на паузе — первый тап её снимает, иначе это уже руление
     if (paused && !over) { togglePause(); return; }
+    // новый палец при пустом руле становится пальцем-рулём
+    if (steerId === null && e.changedTouches.length) {
+      steerId = e.changedTouches[0].identifier;
+    }
     setTouch(e); e.preventDefault();
   }, { passive: false });
   addEventListener('touchmove', e => { if (started) { setTouch(e); e.preventDefault(); } }, { passive: false });
-  addEventListener('touchend', e => {
-    if (e.touches.length === 0) { key.L = key.R = false; boostKey = false; }
-    else if (e.touches.length < 2) boostKey = false;
-  });
+  addEventListener('touchend', e => { setTouch(e); }, { passive: false });
   // touchcancel — система оборвала касание (звонок/уведомление):
   // без него руль «залипает» и змейка вращается вхолостую вечно
-  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; });
+  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; steerId = null; });
 
   // тап по экрану при смерти — заново
   addEventListener('click', () => { if (over) { reset(); startGame(); } });
@@ -419,7 +449,9 @@
     // протечка: труба постоянно подтекает — темп растёт с длиной
     // (длинная разводка = больше соединений). Тает до LEAK_MIN, ниже —
     // труба «заклинивает» в коротком отрезке, не исчезает.
-    if (bodyArc > LEAK_MIN) {
+    // На стартовом экране (до первого жеста) не течёт: иначе длина
+    // старта плавает от времени, проведённого на описании правил.
+    if (started && bodyArc > LEAK_MIN) {
       const leakRate = LEAK_BASE + LEAK_LEN * bodyArc;
       bodyArc = Math.max(LEAK_MIN, bodyArc - leakRate * dt);
     }
@@ -450,7 +482,7 @@
       // рост тела — к потолку MAX_BODY_ARC: дальше труба обнимает сферу
       // и на границе кадра сходит в «прямую» (выглядит как баг)
       bodyArc = Math.min(MAX_BODY_ARC, bodyArc + (kind === 2 ? GOLD_ARC : SEG_ARC));
-      if (score > best) { best = score; try { localStorage.setItem(REC_KEY, String(best)); } catch (e) {} }
+      if (bodyArc > peakArc) peakArc = bodyArc; // фиксируем максимум длины за заезд
       buzz(kind === 2 ? [15, 20, 25] : 18);
       sndEat();
       // брызги у головы (голова всегда в центре — CX, CY); у золотой — ярче
@@ -485,11 +517,23 @@
     boostKey = false;      // буст гаснет вместе с игрой
     shake = 0.45;          // секунд тряски камеры
     slowmo = 0.3;          // время замедлится, потом плавно вернётся
+    // Рекорд — по пиковой длине трубы в метрах (не по каплям):
+    // длина в заезде не накапливается, а тает, поэтому «на сколько
+    // вырос» измеряем максимумом, достигнутым до аварии.
+    const m = mLen(peakArc);
+    let isRec = false;
+    if (m > best + 1e-9) {
+      best = m;
+      isRec = m > 0;
+      try { localStorage.setItem(REC_KEY, String(best)); } catch (e) {}
+    }
     buzz([30, 40, 60]);
     sndDie();
     showOverlay('Авария! Протечка',
-      'Счёт: ' + score + (score > 0 && score >= best ? ' · новый рекорд' : '') +
+      'Длина: ' + m.toFixed(1) + ' м' + (isRec ? ' · новый рекорд' : '') +
+      ' · капли: ' + score +
       (bodyArc <= START_ARC + 0.01 ? ' · труба совсем потекла' : ''));
+    updateHUD();          // рекорд в HUD обновляем сразу, а не на следующем кадре
   }
 
   function showOverlay(title, text, btnText) {
@@ -502,10 +546,12 @@
   }
 
   function updateHUD() {
-    elScore.textContent = score;
-    // «длина» — сколько сегментов тела сейчас (растёт за каплю, тает в бусте)
-    elLen.textContent = Math.max(START_SEG, Math.round(bodyArc / SEG_ARC) + 1);
-    elRec.textContent = best;
+    // «длина» — текущая длина трубы в метрах (главная метрика)
+    elScore.textContent = mLen(bodyArc).toFixed(1);
+    // «капли» — сколько капель собрано за заезд (служебный счёт)
+    elLen.textContent = score;
+    // «рекорд» — лучшая длина за все времена, метры
+    elRec.textContent = best.toFixed(1);
   }
 
   // ---------- отрисовка ----------
@@ -913,6 +959,10 @@
   // debug-мост: состояние игры для headless-тестов (геймплей не трогает)
   window.debug = {
     get score() { return score; },
+    get peakArc() { return peakArc; },
+    get best() { return best; },
+    get lenMeters() { return mLen(bodyArc); },
+    get peakMeters() { return mLen(peakArc); },
     get over() { return over; },
     get started() { return started; },
     get paused() { return paused; },
@@ -921,6 +971,9 @@
     get boosting() { return boosting; },
     get leakRate() { return LEAK_BASE + LEAK_LEN * bodyArc; },
     get boostKey() { return boostKey; },
+    get keyL() { return key.L; },
+    get keyR() { return key.R; },
+    get steerId() { return steerId; },
     get camZoom() { return camZoom; },
     get shake() { return shake; },
     get slowmo() { return slowmo; },
