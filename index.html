@@ -153,6 +153,13 @@
   // буст: удержание -> разгон, но тело «подтекает» (стандарт io-механики)
   const BOOST_MULT = 1.6;  // множитель скорости в бусте
   const BOOST_DRAIN = 0.55;// рад/с — темп таяния тела в бусте
+  // протечка: труба постоянно подтекает (давление в сети не снято).
+  // Темп растёт с длиной — длинная разводка = больше соединений = быстрее
+  // подтекает. Тает до LEAK_MIN и дальше не укорачивается: труба
+  // «сжимается» в короткий отрезок, а не исчезает.
+  const LEAK_BASE = 0.004; // рад/с — фон: короткая труба почти не течёт
+  const LEAK_LEN  = 0.030; // рад/с на рад длины — длиннее разводка, быстрее потёк
+  const LEAK_MIN  = START_ARC * 0.5; // 0.11 рад: труба сжимается, но не исчезает
   const FOOD_N     = 3;    // капель на сфере одновременно
   const FOOD_R     = 0.11; // радиус сбора капли
   const MAX_PARTICLES = 300; // потолок частиц (слабые телефоны: GC-давление)
@@ -254,6 +261,7 @@
     elOvS.innerHTML = 'Левая / правая половина экрана — поворот.<br>' +
       'Съедай капли воды и расти, но не кусай себя в хвост:<br>каждый поворот оставляет за тобой медный трубопровод.<br><br>' +
       '<b>Два пальца — буст:</b> труба разгоняется, но подтекает.<br>' +
+      'Труба всё время подтекает — пей капли, держи разводку.<br>' +
       'Золотая капля = +3 и отрыв по длине.';
     elBtn.textContent = 'К работе';
     elBtn.style.display = 'inline-block';
@@ -408,6 +416,13 @@
       // «подтекание»: в бусте тело постепенно тончает, но не короче стартового
       bodyArc = Math.max(START_ARC, bodyArc - BOOST_DRAIN * dt);
     }
+    // протечка: труба постоянно подтекает — темп растёт с длиной
+    // (длинная разводка = больше соединений). Тает до LEAK_MIN, ниже —
+    // труба «заклинивает» в коротком отрезке, не исчезает.
+    if (bodyArc > LEAK_MIN) {
+      const leakRate = LEAK_BASE + LEAK_LEN * bodyArc;
+      bodyArc = Math.max(LEAK_MIN, bodyArc - leakRate * dt);
+    }
     const s = sp * dt;
     P = norm(add(mul(P, Math.cos(s)), mul(D, Math.sin(s))));
     // страховка: D строго касателен к новому P
@@ -473,7 +488,8 @@
     buzz([30, 40, 60]);
     sndDie();
     showOverlay('Авария! Протечка',
-      'Счёт: ' + score + (score > 0 && score >= best ? ' · новый рекорд' : ''));
+      'Счёт: ' + score + (score > 0 && score >= best ? ' · новый рекорд' : '') +
+      (bodyArc <= START_ARC + 0.01 ? ' · труба совсем потекла' : ''));
   }
 
   function showOverlay(title, text, btnText) {
@@ -872,6 +888,7 @@
     get trailLen() { return trail ? trail.length : 0; },
     get bodyArc() { return bodyArc; },
     get boosting() { return boosting; },
+    get leakRate() { return LEAK_BASE + LEAK_LEN * bodyArc; },
     get boostKey() { return boostKey; },
     get camZoom() { return camZoom; },
     get shake() { return shake; },
