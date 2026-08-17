@@ -139,21 +139,23 @@
     add(add(mul(q, Math.cos(a)), mul(cross(ax, q), Math.sin(a))), mul(ax, dot(ax, q) * (1 - Math.cos(a))));
 
   // ---------- параметры ----------
-  const SPEED     = 1.10;  // рад/с — базовая скорость змеи по сфере (~18 с на круг)
+  const SPEED     = 1.10;  // рад/с — базовая скорость змеи по сфере (~5.7 с на круг)
+  const SPEED_PER_POINT = 0.015; // рад/с прироста скорости за очко счёта
   const SPEED_MAX = 1.50;  // рад/с — потолок ускорения со счётом
   const TURN      = 4.6;   // рад/с — предельная скорость поворота
   const TURN_RAMP = 16.0;  // рад/с² — разгон/торможение руля (быстрый отклик)
   const SEG_ARC   = 0.22;  // дуга одного сегмента тела (радианы)
   const GOLD_ARC  = 0.30;  // золотая капля «откладывает» больше обычного сегмента
   const START_SEG = 2;     // стартовая длина в сегментах; +1 сегмент за каплю
-  const MAX_BODY_ARC = 3.3; // потолок длины тела (~190°): длиннее — труба
+  const START_ARC = (START_SEG - 1) * SEG_ARC; // стартовая длина тела, рад
+  const MAX_BODY_ARC = 2.8; // потолок длины тела (~160°): длиннее — труба
                             // обнимает сферу и у границы сходит в «прямую»
   // буст: удержание -> разгон, но тело «подтекает» (стандарт io-механики)
   const BOOST_MULT = 1.6;  // множитель скорости в бусте
   const BOOST_DRAIN = 0.55;// рад/с — темп таяния тела в бусте
-  const BOOST_MIN  = 0.55; // минимальная длина тела (радианы), ниже которой буст не тратит
   const FOOD_N     = 3;    // капель на сфере одновременно
   const FOOD_R     = 0.11; // радиус сбора капли
+  const MAX_PARTICLES = 300; // потолок частиц (слабые телефоны: GC-давление)
   const CAM_RAMP   = 0.9;  // рад/с — темп отдаления камеры за длиной
   const CAM_ZOOM_MAX = 1.25; // потолок отдаления камеры (1 = стартовое)
   // [очки, цвет, радиус-в-радианах] по kind: 0 мелкая / 1 крупная / 2 золотая
@@ -216,7 +218,7 @@
     // Точка на дуге a позади головы: (-sin a, 0, cos a) — вращение P
     // вокруг оси (0,1,0). Плотная выборка для плавной ленты.
     trail = [];
-    const startArc = (START_SEG - 1) * SEG_ARC;
+    const startArc = START_ARC;
     const stepArc = Math.PI / 240;
     const n = Math.max(1, Math.round(startArc / stepArc));
     for (let i = 0; i <= n; i++) {
@@ -232,7 +234,7 @@
     shake = 0;
     slowmo = 1;
     camZoom = 1;
-    bodyArc = (START_SEG - 1) * SEG_ARC; // текущая длина тела в радианах
+    bodyArc = START_ARC; // текущая длина тела в радианах
     foods = [];
     for (let i = 0; i < FOOD_N; i++) spawnFood();
     vz = norm(P);
@@ -260,7 +262,11 @@
 
   function spawnFood() {
     // не ближе 0.7 рад от головы, не выше π-0.4, и не вплотную к телу —
-    // иначе капля «встаёт» прямо на трубу и есть её = смерть
+    // иначе капля «встаёт» прямо на трубу и есть её = смерть.
+    // Проверка близости к телу — только dot (без acos): угол < 0.3
+    // равносильно dot > cos(0.3). Полный обход следа (~700 точек ×
+    // 200 попыток) остаётся, но каждый шаг в ~15 раз дешевле.
+    const BODY_DOT = Math.cos(0.3);
     for (let i = 0; i < 200; i++) {
       const u = Math.random() * 2 - 1, ph = Math.random() * Math.PI * 2;
       const r = Math.sqrt(1 - u * u);
@@ -268,7 +274,7 @@
       const a = angBetween(c, P);
       if (a < 0.7 || a > Math.PI - 0.4) continue;
       let onBody = false;
-      for (const q of trail) if (angBetween(c, q) < 0.3) { onBody = true; break; }
+      for (const q of trail) if (dot(c, q) > BODY_DOT) { onBody = true; break; }
       if (onBody) continue;
       let tooClose = false;
       for (const fo of foods) if (angBetween(c, fo.v) < 0.5) { tooClose = true; break; }
@@ -395,12 +401,12 @@
       D = norm(rotAxis(D, P, -turnVel * dt));
     }
     // движение по большому кругу: разгон со счётом, буст — кратковременно ещё быстрее
-    let sp = Math.min(SPEED_MAX, SPEED + score * 0.015);
-    boosting = !!boostKey && bodyArc > (START_SEG - 1) * SEG_ARC + 1e-6;
+    let sp = Math.min(SPEED_MAX, SPEED + score * SPEED_PER_POINT);
+    boosting = !!boostKey && bodyArc > START_ARC + 1e-6;
     if (boosting) {
       sp *= BOOST_MULT;
       // «подтекание»: в бусте тело постепенно тончает, но не короче стартового
-      bodyArc = Math.max((START_SEG - 1) * SEG_ARC, bodyArc - BOOST_DRAIN * dt);
+      bodyArc = Math.max(START_ARC, bodyArc - BOOST_DRAIN * dt);
     }
     const s = sp * dt;
     P = norm(add(mul(P, Math.cos(s)), mul(D, Math.sin(s))));
@@ -420,7 +426,7 @@
     // капли (еда): съедаем ближайшую попавшуюся в радиус
     let eatIdx = -1;
     for (let i = 0; i < foods.length; i++) {
-      if (angBetween(P, foods[i].v) < 0.11) { eatIdx = i; break; }
+      if (angBetween(P, foods[i].v) < FOOD_R) { eatIdx = i; break; }
     }
     if (eatIdx >= 0) {
       const kind = foods[eatIdx].kind;
@@ -435,6 +441,8 @@
       // брызги у головы (голова всегда в центре — CX, CY); у золотой — ярче
       const n = kind === 2 ? 20 : 12;
       for (let i = 0; i < n; i++) {
+        // потолок частиц: на слабых телефонах безлимит — просадки и GC
+        if (particles.length >= MAX_PARTICLES) break;
         const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 180;
         particles.push({ x: CX, y: CY, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5 + Math.random() * 0.3, r: 1.5 + Math.random() * 2.5 });
       }
@@ -837,7 +845,11 @@
       const k = 1 - Math.exp(-10 * dt);
       const th = angBetween(vz, P);
       if (th > 1e-9) {
-        const ax = norm(cross(vz, P));
+        // ось = vz×P; у антипода (vz ≈ −P) она вырождается в ноль и
+        // базис мигает — запасная ось: vz×vx (всегда ⊥ vz, не нулевая)
+        let ax = cross(vz, P);
+        if (Math.hypot(ax.x, ax.y, ax.z) < 1e-4) ax = cross(vz, vx);
+        ax = norm(ax);
         const s = th * k;
         vx = norm(rotAxis(vx, ax, s));
         vy = rotAxis(vy, ax, s);
