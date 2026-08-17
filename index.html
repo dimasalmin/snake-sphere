@@ -3,71 +3,129 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Змея на сфере</title>
+<meta name="theme-color" content="#101418">
+<meta name="description" content="Змейка-Монтажник — змейка из медной трубы на сфере. Собирай капли, не дай трубе в себя зайти.">
+<title>Змейка-Монтажник — сантехническая змейка</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%230b0f15'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%237d93b3' stroke-opacity='.5' stroke-width='1.5'/%3E%3Cpath d='M5 16h22M16 3v26M7 9c5 3 13 3 18 0M7 23c5-3 13-3 18 0' stroke='%237d93b3' stroke-opacity='.45' fill='none'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23e0a458'/%3E%3C/svg%3E">
 <style>
   html, body {
     margin: 0; padding: 0;
     width: 100%; height: 100%;
-    background: radial-gradient(ellipse at center, #0b1120 0%, #05070d 100%);
+    background: #10141a;
     overflow: hidden;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    color: #cfe3ff;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    color: #dfe7f0;
     touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { display: block; }
+
+  /* верхняя панель: только цифры */
   #hud {
-    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-    font-size: 16px; letter-spacing: .08em; text-align: center;
-    background: rgba(10, 18, 32, .55); border: 1px solid rgba(96, 165, 250, .25);
-    border-radius: 12px; padding: 8px 22px; backdrop-filter: blur(6px);
+    position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 24px; align-items: baseline;
+    font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    color: #8fa0b3;
+    background: rgba(15, 20, 27, .55);
+    border: 1px solid rgba(180, 196, 214, .10);
+    border-radius: 999px; padding: 9px 24px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     user-select: none; white-space: nowrap;
   }
-  #hud b { color: #4ade80; font-size: 18px; }
-  #hint {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    font-size: 13px; color: #7d93b8; user-select: none; white-space: nowrap;
+  #hud b { font-size: 18px; letter-spacing: .04em; color: #e6edf5; font-weight: 600; margin-left: 7px; }
+  #hud .rec b { color: #45c8f2; }
+  /* кнопка паузы (на мобильном P недоступен) */
+  #pauseBtn {
+    all: unset;
+    cursor: pointer;
+    width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    border: 1px solid rgba(180, 196, 214, .25);
+    background: rgba(69, 200, 242, .08);
+    color: #bfe9fb;
+    font-size: 14px;
+    flex: 0 0 auto;
   }
+  #pauseBtn:active { background: rgba(69, 200, 242, .28); }
+
+  /* миникарта: обзор всей сферы (видны и дальние участки тела) */
+  #minimap {
+    position: fixed; top: max(10px, env(safe-area-inset-top)); right: 12px;
+    width: 110px; height: 110px;
+    opacity: .92;
+    pointer-events: none;
+    z-index: 5;
+  }
+  @media (max-width: 600px) { #minimap { width: 84px; height: 84px; } }
+
+  /* оверлей смерти/паузы/старта */
   #overlay {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center; flex-direction: column;
-    background: rgba(4, 7, 12, .72); backdrop-filter: blur(4px);
-    text-align: center;
+    background: rgba(7, 10, 14, .72);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    text-align: center; padding: 24px;
+    cursor: pointer;
   }
-  #overlay .t { font-size: 42px; font-weight: 700; color: #f87171; margin: 0 0 10px; }
-  #overlay .s { font-size: 20px; margin-bottom: 18px; }
+  #overlay .t { font-size: 34px; font-weight: 600; letter-spacing: .02em; margin: 0 0 6px; color: #e6edf5; }
+  #overlay .s { font-size: 15px; line-height: 1.55; margin: 0 0 22px; color: #93a2b4; max-width: 460px; }
   #overlay button {
-    font-size: 16px; padding: 10px 28px; border-radius: 10px; cursor: pointer;
-    border: 1px solid #3b82f6; background: rgba(59, 130, 246, .15); color: #dbeafe;
+    font-family: inherit; font-size: 15px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 12px 34px; border-radius: 999px; cursor: pointer;
+    border: 1px solid #45c8f2; background: rgba(69, 200, 242, .10); color: #bfe9fb;
+    transition: background .2s;
   }
-  #overlay button:hover { background: rgba(59, 130, 246, .3); }
+  #overlay button:hover { background: rgba(69, 200, 242, .25); }
 </style>
 </head>
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
-<div id="hud">Счёт: <b id="score">0</b> &nbsp;•&nbsp; Длина: <b id="len">3</b></div>
-<div id="hint">← → — поворот &nbsp;|&nbsp; Палец: левая/правая половина экрана</div>
+<div id="hud">
+  <span>счёт<b id="score">0</b></span>
+  <span>длина<b id="len">3</b></span>
+  <span class="rec">рекорд<b id="rec">0</b></span>
+  <button id="pauseBtn" title="Пауза (P)">⏸</button>
+</div>
+<canvas id="minimap"></canvas>
 <div id="overlay">
-  <div class="t">Игра окончена</div>
-  <div class="s">Счёт: <span id="final">0</span></div>
-  <button id="btn">Заново (Space)</button>
+  <div class="t" id="ovTitle">Змейка-Монтажник</div>
+  <div class="s" id="ovText"></div>
+  <button id="btn">Заново</button>
 </div>
 
 <script>
 (() => {
   'use strict';
 
-  // ---------- vector math on the unit sphere ----------
+  // ---------- DOM (объявлены ДО reset()) ----------
+  const canvas  = document.getElementById('c');
+  const ctx     = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const elScore = document.getElementById('score');
+  const elLen   = document.getElementById('len');
+  const elRec   = document.getElementById('rec');
+  const elOvT   = document.getElementById('ovTitle');
+  const elOvS   = document.getElementById('ovText');
+  const elBtn   = document.getElementById('btn');
+  const elPause = document.getElementById('pauseBtn');
+  const mini    = document.getElementById('minimap');
+  const mctx    = mini.getContext('2d');
+
+  // ---------- векторная математика на единичной сфере ----------
   const V = (x, y, z) => ({ x, y, z });
   const add = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
   const sub = (a, b) => V(a.x - b.x, a.y - b.y, a.z - b.z);
   const mul = (a, s) => V(a.x * s, a.y * s, a.z * s);
   const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
   const cross = (a, b) => V(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
-  const len = a => Math.sqrt(dot(a, a));
-  const norm = a => { const l = len(a) || 1; return V(a.x / l, a.y / l, a.z / l); };
-  const lerp = (a, b, t) => add(mul(a, 1 - t), mul(b, t));
-  // great-circle interpolation: a -> b by angle t*ang(a,b)
+  const vlen = a => Math.sqrt(dot(a, a));
+  const norm = a => { const l = vlen(a) || 1; return V(a.x / l, a.y / l, a.z / l); };
+  // интерполяция по большому кругу: a -> b на долю t
   const slerp = (a, b, t) => {
     const c = Math.max(-1, Math.min(1, dot(a, b)));
     const th = Math.acos(c);
@@ -76,128 +134,359 @@
     return norm(add(mul(a, Math.sin((1 - t) * th) / s), mul(b, Math.sin(t * th) / s)));
   };
   const angBetween = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
+  // вращение вектора вокруг единичной оси ax на угол a (Родригес)
+  const rotAxis = (q, ax, a) =>
+    add(add(mul(q, Math.cos(a)), mul(cross(ax, q), Math.sin(a))), mul(ax, dot(ax, q) * (1 - Math.cos(a))));
 
-  // ---------- 3D model (sphere + camera) ----------
-  const SPEED   = 1.7;   // rad/s — how fast the snake creeps
-  const TURN    = 3.6;   // rad/s — steering rate
-  const SEG_GAP = 0.145; // arc distance between body segments
+  // ---------- параметры ----------
+  const SPEED     = 1.10;  // рад/с — базовая скорость змеи по сфере (~18 с на круг)
+  const SPEED_MAX = 1.50;  // рад/с — потолок ускорения со счётом
+  const TURN      = 4.6;   // рад/с — предельная скорость поворота
+  const TURN_RAMP = 16.0;  // рад/с² — разгон/торможение руля (быстрый отклик)
+  const SEG_ARC   = 0.22;  // дуга одного сегмента тела (радианы)
+  const GOLD_ARC  = 0.30;  // золотая капля «откладывает» больше обычного сегмента
+  const START_SEG = 2;     // стартовая длина в сегментах; +1 сегмент за каплю
+  const MAX_BODY_ARC = 3.3; // потолок длины тела (~190°): длиннее — труба
+                            // обнимает сферу и у границы сходит в «прямую»
+  // буст: удержание -> разгон, но тело «подтекает» (стандарт io-механики)
+  const BOOST_MULT = 1.6;  // множитель скорости в бусте
+  const BOOST_DRAIN = 0.55;// рад/с — темп таяния тела в бусте
+  const BOOST_MIN  = 0.55; // минимальная длина тела (радианы), ниже которой буст не тратит
+  const FOOD_N     = 3;    // капель на сфере одновременно
+  const FOOD_R     = 0.11; // радиус сбора капли
+  const CAM_RAMP   = 0.9;  // рад/с — темп отдаления камеры за длиной
+  const CAM_ZOOM_MAX = 1.25; // потолок отдаления камеры (1 = стартовое)
+  // [очки, цвет, радиус-в-радианах] по kind: 0 мелкая / 1 крупная / 2 золотая
+  const FOOD_TYPES = [
+    [1, "#3fa9e0", 0.030],
+    [2, "#37c4ee", 0.042],
+    [3, "#ffd45e", 0.046],
+  ];
 
-  let P;      // head world position (unit vector on sphere)
-  let D;      // heading: tangent to the sphere at P
-  let body;   // head trail points, each SEG_GAP arc apart, [P, older, ...]
-  let food;
+  // ---------- состояние ----------
+  let P, D;        // голова и касательное направление
+  let trail;       // след: плотные точки, [0] — ближайшая к голове
+  let lastSub;     // дуга подшага (для расчёта длины следа)
+  let foods;       // [ {v, kind}, ... ] — капли на сфере
+  let camZoom = 1; // отдаление камеры при росте тела (1 = стартовое)
+  let boosting = false; // сейчас идёт буст
+  let bodyArc = 0;      // текущая длина тела в радианах (может таять в бусте)
+  let shake = 0;        // тряска камеры (секунд, затухает)
+  let slowmo = 1;       // множитель времени при смерти (0.25 = слоу-мо)
   let score;
   let over;
+  let paused = false;
+  let started = false; // старт-экран: игра ждёт первого жеста
+  let turnVel = 0; // текущая «скорость руля»
+  let last = performance.now();
+  const particles = []; // капли-искры при сборе
 
-  // view: camera basis in world space (x, y, z orthonormal; z = line of sight to camera)
+  // ---------- звук (WebAudio, без файлов) ----------
+  let ac = null;
+  function ensureAudio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
+  }
+  function beep(freq, dur, vol, type, when) {
+    if (!ac) return;
+    const t0 = ac.currentTime + (when || 0);
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  const sndEat   = () => { beep(660, .09, .06, 'triangle'); beep(990, .12, .05, 'triangle', .05); };
+  const sndDie   = () => { beep(220, .25, .08, 'sawtooth'); beep(110, .4, .08, 'sawtooth', .12); };
+
+  // камера: ортонормальный базис, смотрит на голову (в центр экрана)
   let vx, vy, vz;
+
+  const REC_KEY = 'snake_sphere_rec';
+  let best = 0;
+  try { best = parseInt(localStorage.getItem(REC_KEY) || '0', 10) || 0; } catch (e) {}
 
   function reset() {
     P = V(0, 0, 1);
-    D = V(1, 0, 0);                       // heading: "east"
-    // seed the trail behind the head: fixed length 3, points SEG_GAP apart
-    body = [P];
-    for (let i = 1; i < 3; i++) body.push(slerp(mul(P, -1), P, 1 - i / 3));
+    D = V(1, 0, 0);
+    // стартовое тело: START_SEG сегментов назад по большому кругу.
+    // Голова в P=(0,0,1), движется в +x (D=(1,0,0)) => тело в -x.
+    // Точка на дуге a позади головы: (-sin a, 0, cos a) — вращение P
+    // вокруг оси (0,1,0). Плотная выборка для плавной ленты.
+    trail = [];
+    const startArc = (START_SEG - 1) * SEG_ARC;
+    const stepArc = Math.PI / 240;
+    const n = Math.max(1, Math.round(startArc / stepArc));
+    for (let i = 0; i <= n; i++) {
+      const a = i * stepArc;
+      trail.push(V(-Math.sin(a), 0, Math.cos(a)));
+    }
     score = 0;
     over = false;
-    vz = norm(P);                         // camera looks along head position
-    const ref = Math.abs(vz.y) > 0.99 ? V(1, 0, 0) : V(0, 1, 0);
+    paused = false;
+    turnVel = 0;
+    boosting = false;
+    boostKey = false;
+    shake = 0;
+    slowmo = 1;
+    camZoom = 1;
+    bodyArc = (START_SEG - 1) * SEG_ARC; // текущая длина тела в радианах
+    foods = [];
+    for (let i = 0; i < FOOD_N; i++) spawnFood();
+    vz = norm(P);
+    // базис камеры: устойчивый выбор опорного вектора,
+    // чтобы не вырождаться у «полюсов» (когда vz ∥ ref)
+    let ref = V(0, 1, 0);
+    if (Math.abs(vz.y) > 0.98) ref = V(1, 0, 0);
     vx = norm(cross(vz, ref));
     vy = cross(vz, vx);
-    spawnFood();
     updateHUD();
-    overlay.style.display = 'none';
+    if (started) overlay.style.display = 'none';
+    else showStart();
+  }
+
+  function showStart() {
+    elOvT.textContent = 'Змейка-Монтажник';
+    elOvS.innerHTML = 'Левая / правая половина экрана — поворот.<br>' +
+      'Съедай капли воды и расти, но не кусай себя в хвост:<br>каждый поворот оставляет за тобой медный трубопровод.<br><br>' +
+      '<b>Два пальца — буст:</b> труба разгоняется, но подтекает.<br>' +
+      'Золотая капля = +3 и отрыв по длине.';
+    elBtn.textContent = 'К работе';
+    elBtn.style.display = 'inline-block';
+    overlay.style.display = 'flex';
   }
 
   function spawnFood() {
+    // не ближе 0.7 рад от головы, не выше π-0.4, и не вплотную к телу —
+    // иначе капля «встаёт» прямо на трубу и есть её = смерть
     for (let i = 0; i < 200; i++) {
       const u = Math.random() * 2 - 1, ph = Math.random() * Math.PI * 2;
       const r = Math.sqrt(1 - u * u);
       const c = V(r * Math.cos(ph), r * Math.sin(ph), u);
       const a = angBetween(c, P);
-      if (a > 0.7 && a < Math.PI - 0.4) { food = c; return; }
+      if (a < 0.7 || a > Math.PI - 0.4) continue;
+      let onBody = false;
+      for (const q of trail) if (angBetween(c, q) < 0.3) { onBody = true; break; }
+      if (onBody) continue;
+      let tooClose = false;
+      for (const fo of foods) if (angBetween(c, fo.v) < 0.5) { tooClose = true; break; }
+      if (tooClose) continue;
+      const roll = Math.random();
+      const kind = roll < 0.15 ? 2 : roll < 0.45 ? 1 : 0; // 0 мелкая / 1 крупная / 2 золотая
+      foods.push({ v: c, kind });
+      return;
     }
-    food = mul(P, -1);
+    // резерв: точка напротив головы
+    foods.push({ v: mul(P, -1), kind: 0 });
   }
 
-  // ---------- input ----------
+  // ---------- ввод ----------
   const key = { L: false, R: false };
+  let boostKey = false;   // клавиша/кнопка буста зажата
+  function startGame() {
+    if (started) return;
+    started = true;
+    overlay.style.display = 'none';
+    elBtn.style.display = 'none';
+    ensureAudio();
+    last = performance.now();
+  }
   addEventListener('keydown', e => {
-    if (e.code === 'ArrowLeft')  { key.L = true;  e.preventDefault(); }
-    if (e.code === 'ArrowRight') { key.R = true;  e.preventDefault(); }
-    if (e.code === 'Space' && over) reset();
+    if (!started && !over) startGame();
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA')  { key.L = true;  e.preventDefault(); }
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') { key.R = true;  e.preventDefault(); }
+    // буст: Shift / A / W / правая кнопка мыши (в обработчике mousedown)
+    if (['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyF'].includes(e.code)) boostKey = true;
+    if (e.code === 'Space') {
+      e.preventDefault();                 // без этого пробел «тащит» фокус-кнопку
+      if (over) { reset(); startGame(); }
+    }
+    if (e.code === 'KeyP' && started && !over) togglePause();
   });
   addEventListener('keyup', e => {
-    if (e.code === 'ArrowLeft')  key.L = false;
-    if (e.code === 'ArrowRight') key.R = false;
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA')  key.L = false;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') key.R = false;
+    if (['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyF'].includes(e.code)) boostKey = false;
   });
-  // touch: left / right half of screen
+  // правая кнопка мыши = буст
+  addEventListener('mousedown', e => { if (e.button === 2) boostKey = true; });
+  addEventListener('mouseup',   e => { if (e.button === 2) boostKey = false; });
+  addEventListener('contextmenu', e => e.preventDefault());
+
+  // сенсор: левая половина экрана — поворот влево, правая — вправо.
+  // Простая и интуитивная схема: нажал куда — туда и повернул.
   const setTouch = e => {
-    const x = e.touches[0].clientX;
-    key.L = x < innerWidth / 2;
-    key.R = x >= innerWidth / 2;
+    const t = e.touches[0];
+    key.L = t.clientX < innerWidth / 2;
+    key.R = !key.L;
+    // два пальца — буст (первый палец продолжает рулить)
+    boostKey = e.touches.length >= 2;
   };
-  addEventListener('touchstart', e => { setTouch(e); e.preventDefault(); }, { passive: false });
-  addEventListener('touchmove',  e => { setTouch(e); e.preventDefault(); }, { passive: false });
-  addEventListener('touchend',   () => { key.L = key.R = false; });
-  document.getElementById('btn').addEventListener('click', reset);
+  addEventListener('touchstart', e => {
+    if (!started) { startGame(); return; } // первый тап запускает
+    // если на паузе — первый тап её снимает, иначе это уже руление
+    if (paused && !over) { togglePause(); return; }
+    setTouch(e); e.preventDefault();
+  }, { passive: false });
+  addEventListener('touchmove', e => { if (started) { setTouch(e); e.preventDefault(); } }, { passive: false });
+  addEventListener('touchend', e => {
+    if (e.touches.length === 0) { key.L = key.R = false; boostKey = false; }
+    else if (e.touches.length < 2) boostKey = false;
+  });
+  // touchcancel — система оборвала касание (звонок/уведомление):
+  // без него руль «залипает» и змейка вращается вхолостую вечно
+  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; });
 
-  // ---------- game step ----------
-  let trail = 0;   // accumulated arc since last trail point
+  // тап по экрану при смерти — заново
+  addEventListener('click', () => { if (over) { reset(); startGame(); } });
+  const actBtn = e => {
+    e.stopPropagation();
+    if (!started) startGame();
+    else if (over) { reset(); startGame(); }
+    else if (paused) togglePause();
+  };
+  elBtn.addEventListener('click', actBtn);
+  elBtn.addEventListener('touchend', e => { e.preventDefault(); actBtn(e); }, { passive: false });
+
+  // кнопка паузы в HUD (на мобильном P недоступен)
+  const actPause = e => {
+    e.stopPropagation();
+    togglePause();
+  };
+  elPause.addEventListener('click', actPause);
+  elPause.addEventListener('touchend', e => { e.preventDefault(); actPause(e); }, { passive: false });
+
+  function togglePause() {
+    if (over || !started) return;
+    paused = !paused;
+    if (paused) showOverlay('Пауза', null, 'Далее');
+    else { overlay.style.display = 'none'; elBtn.style.display = 'none'; last = performance.now(); }
+  }
+
+  function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+
+  // автопауза при сворачивании вкладки
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !over && !paused) togglePause();
+    last = performance.now();
+  });
+
+  // ---------- шаг игры ----------
   function step(dt) {
-    if (over) return;
+    if (over || paused) return;
 
-    const turn = (key.R ? 1 : 0) - (key.L ? 1 : 0);
-    const oldP = P;
+    // плавный руль: скорость поворота разгоняется/тормозится без рывков
+    const target = (key.R ? 1 : 0) - (key.L ? 1 : 0);
+    const rate = TURN_RAMP * dt;
+    if (turnVel < target * TURN)      turnVel = Math.min(target * TURN, turnVel + rate);
+    else if (turnVel > target * TURN) turnVel = Math.max(target * TURN, turnVel - rate);
 
-    if (turn !== 0) {
-      D = norm(add(mul(D, Math.cos(turn * TURN * dt)),
-                   mul(cross(P, D), Math.sin(turn * TURN * dt))));
+    if (turnVel !== 0) {
+      // Осью поворота служит радиус P (НЕ D×P): вращение D вокруг P
+      // — это именно поворот «вбок» по поверхности сферы (вправо/влево
+      // по экрану), а наклон D×P нос лишь наклонял в меридиане.
+      // D⊥P сохраняется точно (D·P≈0 на каждом шаге).
+      // Знак: +1 (правая половина/стрелка →) уводит нос вправо
+      // относительно направления движения, −1 (левая/←) — влево.
+      // Минус: базис камеры (vx = vz × ref) «зеркалит» вращение на экране,
+      // без него правая половина вела нос влево.
+      D = norm(rotAxis(D, P, -turnVel * dt));
     }
-    // creep along the great circle
-    const s = SPEED * dt;
-    P = norm(add(mul(oldP, Math.cos(s)), mul(D, Math.sin(s))));
-
-    // fixed-arc trail: every SEG_GAP of travel becomes a body point
-    trail += s;
-    if (trail >= SEG_GAP) {
-      trail -= SEG_GAP;
-      body.unshift(oldP);
-      const want = 3 + score;                 // start length 3, +1 per food
-      if (body.length > want) body.length = want;
+    // движение по большому кругу: разгон со счётом, буст — кратковременно ещё быстрее
+    let sp = Math.min(SPEED_MAX, SPEED + score * 0.015);
+    boosting = !!boostKey && bodyArc > (START_SEG - 1) * SEG_ARC + 1e-6;
+    if (boosting) {
+      sp *= BOOST_MULT;
+      // «подтекание»: в бусте тело постепенно тончает, но не короче стартового
+      bodyArc = Math.max((START_SEG - 1) * SEG_ARC, bodyArc - BOOST_DRAIN * dt);
     }
+    const s = sp * dt;
+    P = norm(add(mul(P, Math.cos(s)), mul(D, Math.sin(s))));
+    // страховка: D строго касателен к новому P
+    D = norm(sub(D, mul(P, dot(D, P))));
 
-    // food
-    if (angBetween(P, food) < 0.11) {
-      score++;
-      spawnFood();
+    // след: плотная точка каждый подшаг; длина тела = bodyArc (радианы):
+    // +1 сегмент за каплю (до потолка MAX_BODY_ARC), минус — «подтекание» в бусте
+    trail.unshift(P);
+    lastSub = s;
+    const arc = bodyArc;
+    // lastSub может быть ~0 (фрейм с dt=0 после паузы) -> делим только если >0,
+    // иначе не урезаем след (оставляем текущую длину + новую точку).
+    const maxPts = lastSub > 1e-6 ? Math.ceil(arc / lastSub) + 1 : trail.length + 1;
+    if (trail.length > maxPts) trail.length = maxPts;
+
+    // капли (еда): съедаем ближайшую попавшуюся в радиус
+    let eatIdx = -1;
+    for (let i = 0; i < foods.length; i++) {
+      if (angBetween(P, foods[i].v) < 0.11) { eatIdx = i; break; }
+    }
+    if (eatIdx >= 0) {
+      const kind = foods[eatIdx].kind;
+      foods.splice(eatIdx, 1);
+      score += FOOD_TYPES[kind][0];
+      // рост тела — к потолку MAX_BODY_ARC: дальше труба обнимает сферу
+      // и на границе кадра сходит в «прямую» (выглядит как баг)
+      bodyArc = Math.min(MAX_BODY_ARC, bodyArc + (kind === 2 ? GOLD_ARC : SEG_ARC));
+      if (score > best) { best = score; try { localStorage.setItem(REC_KEY, String(best)); } catch (e) {} }
+      buzz(kind === 2 ? [15, 20, 25] : 18);
+      sndEat();
+      // брызги у головы (голова всегда в центре — CX, CY); у золотой — ярче
+      const n = kind === 2 ? 20 : 12;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 180;
+        particles.push({ x: CX, y: CY, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5 + Math.random() * 0.3, r: 1.5 + Math.random() * 2.5 });
+      }
+      while (foods.length < FOOD_N) spawnFood();   // держим на карте FOOD_N капель
       updateHUD();
     }
 
-    // self collision: the head must stay away from the body.
-    // body[0]..body[2] are the neck (always right behind the head) — skipped;
-    // a real loop must come around at least 0.63 rad.
-    for (let i = 3; i < body.length; i++) {
-      if (angBetween(P, body[i]) < SEG_GAP * 0.55) { gameOver(); break; }
+    // самопересечение: «шея» (первые ~0.35 рад за головой) — это тело
+    // самой змеи, в нём быть рядом не страшно (даже в крутом вираже);
+    // дальше по следу, если голова замкнула круг и подошла к телу
+    // вплотную — смерть.
+    const neck = 0.35;
+    const hitDist = 0.055;
+    let acc = 0;
+    for (let i = 1; i < trail.length; i++) {
+      acc += angBetween(trail[i - 1], trail[i]);
+      if (acc < neck) continue;
+      if (angBetween(P, trail[i]) < hitDist) { gameOver(); break; }
     }
   }
 
   function gameOver() {
     over = true;
-    document.getElementById('final').textContent = score;
+    boosting = false;
+    boostKey = false;      // буст гаснет вместе с игрой
+    shake = 0.45;          // секунд тряски камеры
+    slowmo = 0.3;          // время замедлится, потом плавно вернётся
+    buzz([30, 40, 60]);
+    sndDie();
+    showOverlay('Авария! Протечка',
+      'Счёт: ' + score + (score > 0 && score >= best ? ' · новый рекорд' : ''));
+  }
+
+  function showOverlay(title, text, btnText) {
+    elOvT.textContent = title;
+    elOvS.textContent = text || '';
+    elOvS.style.display = text ? 'block' : 'none';
+    elBtn.textContent = btnText || 'Заново';
+    elBtn.style.display = 'inline-block';
     overlay.style.display = 'flex';
   }
 
   function updateHUD() {
-    document.getElementById('score').textContent = score;
-    document.getElementById('len').textContent = 3 + score;
+    elScore.textContent = score;
+    // «длина» — сколько сегментов тела сейчас (растёт за каплю, тает в бусте)
+    elLen.textContent = Math.max(START_SEG, Math.round(bodyArc / SEG_ARC) + 1);
+    elRec.textContent = best;
   }
 
-  // ---------- rendering ----------
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
-  const overlay = document.getElementById('overlay');
+  // ---------- отрисовка ----------
   let W, H, R, CX, CY, DPR;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function resize() {
     DPR = Math.min(devicePixelRatio || 1, 2);
@@ -205,18 +494,21 @@
     canvas.width = W * DPR; canvas.height = H * DPR;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // the whole sphere always fits in the view, nothing cropped
-    R = Math.min(W, H) * 0.40;
+    // миникарта: размер берём из CSS (110/84 px), масштабируем под DPR
+    const ms = mini.clientWidth || 110;
+    mini.width = ms * DPR; mini.height = ms * DPR;
+    mctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    R = Math.min(W, H) * 0.46;   // сфера крупно в кадре: мир читается, не «уезжает» в точку
     CX = W / 2; CY = H / 2;
   }
   addEventListener('resize', resize);
   resize();
 
   function project(p) {
-    const x = dot(p, vx), y = dot(p, vy), z = dot(p, vz);
-    return { x: CX + x * R, y: CY - y * R, z };
+    return { x: CX + dot(p, vx) * R, y: CY - dot(p, vy) * R, z: dot(p, vz) };
   }
 
+  // плавный путь: квадратичные кривые Безье через средние точки
   function smoothPath(pts) {
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -228,191 +520,369 @@
     ctx.lineTo(l.x, l.y);
   }
 
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-
-    // ambient glow behind the sphere
-    const glow = ctx.createRadialGradient(CX, CY, R * 0.6, CX, CY, R * 1.5);
-    glow.addColorStop(0, 'rgba(56, 132, 255, 0.10)');
-    glow.addColorStop(1, 'rgba(56, 132, 255, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
-
-    // sphere body
-    const sg = ctx.createRadialGradient(CX - R * 0.35, CY - R * 0.35, R * 0.1, CX, CY, R);
-    sg.addColorStop(0, '#101c33');
-    sg.addColorStop(0.7, '#0a1322');
-    sg.addColorStop(1, '#060b14');
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.fillStyle = sg;
-    ctx.fill();
-
-    // grid on the front hemisphere (shows the rotation)
-    const lines = [];
-    for (let lat = -60; lat <= 60; lat += 30) {
-      const la = lat * Math.PI / 180, r = Math.cos(la), y = Math.sin(la);
-      const pts = [];
-      for (let i = 0; i <= 48; i++) {
-        const th = i / 48 * Math.PI * 2;
-        const w = V(r * Math.cos(th), y, r * Math.sin(th));
-        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
-        pts.push(p);
-      }
-      lines.push(pts);
-    }
-    for (let lon = 0; lon < 180; lon += 30) {
-      const lo = lon * Math.PI / 180;
-      const pts = [];
-      for (let i = 0; i <= 48; i++) {
-        const th = i / 48 * Math.PI * 2;
-        const w = V(Math.cos(th) * Math.cos(lo), Math.sin(th), Math.cos(th) * Math.sin(lo));
-        const p = { x: dot(w, vx), y: dot(w, vy), z: dot(w, vz) };
-        pts.push(p);
-      }
-      lines.push(pts);
-    }
-    ctx.lineWidth = 1;
-    for (const ring of lines) {
-      for (let i = 0; i < ring.length - 1; i++) {
-        if (ring[i].z > -0.02 && ring[i + 1].z > -0.02) {
-          const a = Math.min(ring[i].z, ring[i + 1].z);
-          ctx.strokeStyle = 'rgba(96, 165, 250, ' + (0.05 + 0.16 * Math.max(0, a)) + ')';
-          ctx.beginPath();
-          ctx.moveTo(CX + ring[i].x * R, CY - ring[i].y * R);
-          ctx.lineTo(CX + ring[i + 1].x * R, CY - ring[i + 1].y * R);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // rim
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // ---- everything on the surface, sorted back-to-front ----
-    const segPts = [];
-    for (let i = 0; i < body.length; i++) {
-      const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
-      const n = 2 + Math.floor(angBetween(a, b) / 0.03);
-      for (let k = 0; k <= n; k++) segPts.push(slerp(a, b, k / n));
-    }
-    const foodZ = dot(food, vz);
-    const items = segPts.map(p => ({
-      x: CX + dot(p, vx) * R, y: CY - dot(p, vy) * R, z: dot(p, vz), seg: false
-    }));
-    items.push({ x: CX + dot(food, vx) * R, y: CY - dot(food, vy) * R, z: foodZ, seg: true });
-    items.sort((a, b) => a.z - b.z);
-
-    const pulse = 1 + 0.25 * Math.sin(performance.now() / 200);
-    for (const it of items) {
-      if (it.z < -0.12) continue;                       // hidden by the sphere
-      const depth = Math.max(0, it.z);
-      if (it.seg) {
-        const r = (R * 0.052) * (0.55 + 0.45 * depth) * pulse;
-        ctx.beginPath(); ctx.arc(it.x, it.y, r * 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.12 + 0.25 * depth) + ')'; ctx.fill();
-        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(248, 113, 113, ' + (0.35 + 0.65 * depth) + ')'; ctx.fill();
-        ctx.beginPath(); ctx.arc(it.x, it.y, r * 0.45, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(254, 202, 202, ' + (0.5 + 0.5 * depth) + ')'; ctx.fill();
-      } else {
-        const r = R * 0.040 * (0.55 + 0.45 * depth);
-        ctx.beginPath(); ctx.arc(it.x, it.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(74, 222, 128, ' + (0.30 + 0.70 * depth) + ')';
-        ctx.fill();
-      }
-    }
-
-    // snake body: one smooth ribbon over the segments
-    if (body.length >= 2) {
-      const proj = [];
-      for (let i = 0; i < body.length; i++) {
-        const a = body[i], b = body[Math.min(i + 1, body.length - 1)];
-        const n = 2 + Math.floor(angBetween(a, b) / 0.03);
-        for (let k = 0; k <= n; k++) { const w = slerp(a, b, k / n); proj.push(project(w)); }
-      }
+  // лента с толщиной по глубине: дальние участки тоньше — ощущение объёма.
+  // pts уже отсортированы: [0] — хвост, конец — голова (в центре).
+  // Хвост дополнительно тускнеет (fade 0.3→1 к голове): длинная труба
+  // на границе кадра не превращается в «линию-баг», а растворяется.
+  // Стилистика — медная труба: тёмный контур, медь, блик по оси.
+  function strokeRibbon(pts, baseW) {
+    const SEG = 3;
+    const n = pts.length - 1;
+    for (let i = 0; i < n; i += SEG) {
+      const j = Math.min(i + SEG, n);
+      const seg = pts.slice(i, j + 1);
+      if (seg.length < 2) continue;
+      const d = seg[seg.length - 1].z;          // глубина у головы сегмента
+      const w = Math.max(baseW * 0.35, baseW * (0.55 + 0.45 * Math.max(0, d)));
+      const fade = 0.30 + 0.70 * Math.min(1, n > 1 ? i / n : 1); // хвост → голова
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      smoothPath(proj);
-      ctx.strokeStyle = 'rgba(21, 128, 61, 0.9)';
-      ctx.lineWidth = Math.max(2, R * 0.105);
-      ctx.stroke();
-      smoothPath(proj);
-      ctx.strokeStyle = 'rgba(74, 222, 128, 0.95)';
-      ctx.lineWidth = Math.max(1.2, R * 0.062);
-      ctx.stroke();
-      // neck -> head highlight (head is always in front, at center)
-      const p0 = proj[0], p1 = proj[Math.min(2, proj.length - 1)];
-      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y);
-      ctx.strokeStyle = 'rgba(134, 239, 172, 0.9)';
-      ctx.lineWidth = Math.max(1.5, R * 0.07);
-      ctx.stroke();
-    }
-
-    // head — always fixed at the center of the screen
-    const hr = R * 0.075;
-    const hg = ctx.createRadialGradient(CX - hr * 0.3, CY - hr * 0.3, hr * 0.1, CX, CY, hr);
-    hg.addColorStop(0, '#bbf7d0');
-    hg.addColorStop(0.6, '#4ade80');
-    hg.addColorStop(1, '#15803d');
-    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
-    ctx.fillStyle = hg; ctx.fill();
-    ctx.beginPath(); ctx.arc(CX, CY, hr + 3, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(187, 247, 208, 0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
-    // eyes: offset in the current heading direction
-    const dx = CX + dot(D, vx) * hr * 0.45;
-    const dy = CY - dot(D, vy) * hr * 0.45;
-    const px = CX + dot(cross(P, D), vx) * hr * 0.38;
-    const py = CY - dot(cross(P, D), vy) * hr * 0.38;
-    for (const s of [1, -1]) {
-      ctx.beginPath();
-      ctx.arc(dx + s * px, dy + s * py, Math.max(1.2, hr * 0.18), 0, Math.PI * 2);
-      ctx.fillStyle = '#052e16'; ctx.fill();
-    }
-
-    // heading compass (where "north" is after steering)
-    const n1 = norm(add(D, mul(P, 1.6)));
-    const n2 = norm(add(D, mul(P, 0.45)));
-    const a1 = project(n1), a2 = project(n2);
-    if (a1.z > 0 && a2.z > 0) {
-      ctx.beginPath();
-      ctx.moveTo(CX, CY);
-      ctx.lineTo(lerp(a2, a1, 0.25).x, lerp(a2, a1, 0.25).y);
-      ctx.strokeStyle = 'rgba(187, 247, 208, 0.35)';
-      ctx.lineWidth = 2; ctx.stroke();
+      ctx.globalAlpha = fade;
+      ctx.strokeStyle = 'rgba(8, 10, 14, 0.65)';
+      ctx.lineWidth = w + Math.max(2, baseW * 0.22);
+      smoothPath(seg); ctx.stroke();            // тёмный фланец/контур
+      ctx.strokeStyle = '#b5754a';
+      ctx.lineWidth = w;
+      smoothPath(seg); ctx.stroke();            // медь
+      ctx.strokeStyle = 'rgba(255, 216, 160, ' + (0.25 + 0.45 * Math.max(0, d)).toFixed(2) + ')';
+      ctx.lineWidth = Math.max(1, w * 0.34);
+      smoothPath(seg); ctx.stroke();            // блик по оси трубы
+      ctx.globalAlpha = 1;
     }
   }
 
-  // ---------- main loop ----------
-  // camera: pan/tilt (no roll) — basis rotates rigidly toward the head
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // фон: стальной цех (без трансформации камеры — всегда весь экран)
+    const bg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, Math.max(W, H) * 0.75);
+    bg.addColorStop(0, '#182029');
+    bg.addColorStop(0.55, '#121820');
+    bg.addColorStop(1, '#0b0f14');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // холодное свечение-атмосфера позади сферы
+    const glow = ctx.createRadialGradient(CX, CY, R * 0.7, CX, CY, R * 1.45);
+    glow.addColorStop(0, 'rgba(69, 200, 242, 0.07)');
+    glow.addColorStop(1, 'rgba(69, 200, 242, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    // камера: отдаление при росте тела + тряска при аварии
+    let sx = 0, sy = 0;
+    if (shake > 0 && !reducedMotion) {
+      const amp = shake * 14;
+      sx = (Math.random() * 2 - 1) * amp;
+      sy = (Math.random() * 2 - 1) * amp;
+    }
+    ctx.save();
+    ctx.translate(CX + sx, CY + sy);
+    ctx.scale(1 / camZoom, 1 / camZoom);
+    ctx.translate(-CX, -CY);
+
+    // тело сферы: холодный свет сверху-слева
+    const sg = ctx.createRadialGradient(CX - R * 0.38, CY - R * 0.42, R * 0.08, CX, CY, R * 1.02);
+    sg.addColorStop(0, '#2a3644');
+    sg.addColorStop(0.45, '#212c38');
+    sg.addColorStop(0.8, '#18212b');
+    sg.addColorStop(1, '#10151b');
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.fillStyle = sg; ctx.fill();
+
+    // сетка меридианов/параллелей — тонкая, показывает вращение сферы
+    ctx.lineWidth = 1;
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const la = lat * Math.PI / 180, r = Math.cos(la), y = Math.sin(la);
+      let prev = null;
+      for (let i = 0; i <= 48; i++) {
+        const th = i / 48 * Math.PI * 2;
+        const p = project(V(r * Math.cos(th), y, r * Math.sin(th)));
+        if (prev && prev.z > -0.02 && p.z > -0.02) {
+          const a = Math.min(prev.z, p.z);
+          ctx.strokeStyle = 'rgba(160, 184, 210, ' + (0.03 + 0.10 * Math.max(0, a)).toFixed(3) + ')';
+          ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+        prev = p;
+      }
+    }
+    for (let lon = 0; lon < 180; lon += 30) {
+      const lo = lon * Math.PI / 180;
+      let prev = null;
+      for (let i = 0; i <= 48; i++) {
+        const th = i / 48 * Math.PI * 2;
+        const p = project(V(Math.cos(th) * Math.cos(lo), Math.sin(th), Math.cos(th) * Math.sin(lo)));
+        if (prev && prev.z > -0.02 && p.z > -0.02) {
+          const a = Math.min(prev.z, p.z);
+          ctx.strokeStyle = 'rgba(160, 184, 210, ' + (0.03 + 0.10 * Math.max(0, a)).toFixed(3) + ')';
+          ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+        prev = p;
+      }
+    }
+
+    // ободок сферы
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(160, 184, 210, 0.28)';
+    ctx.lineWidth = 1.2; ctx.stroke();
+
+    // ---- капли (еда): рисуются до/после тела по окклюзии ----
+    const t = performance.now() / 1000;
+    const pulse = reducedMotion ? 1 : 1 + 0.22 * Math.sin(t * 3);
+    // дальняя сторона сферы (z < 0) не показываем: сквозь «землю» капли
+    // не видны — это читается как артефакт; где они — показывает миникарта
+    const foodProj = foods.filter(fo => project(fo.v).z >= 0).map(fo => ({ fo, f: project(fo.v) }));
+
+    const drawFood = (fp, kind) => {
+      const f = fp.f;
+      const depth = Math.max(0, f.z);
+      const base = kind === 2 ? R * 0.058 : kind === 1 ? R * 0.062 : R * 0.046;
+      const r = base * (0.55 + 0.45 * depth) * pulse;
+      // водяная капля: круг с хвостиком вверх (у золотой — золотой градиент)
+      ctx.beginPath(); ctx.arc(f.x, f.y, r * 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = kind === 2
+        ? 'rgba(255, 205, 92, ' + (0.10 + 0.18 * depth).toFixed(3) + ')'
+        : 'rgba(69, 200, 242, ' + (0.08 + 0.16 * depth).toFixed(3) + ')';
+      ctx.fill();
+      const wg = ctx.createRadialGradient(f.x - r * 0.3, f.y - r * 0.35, r * 0.1, f.x, f.y, r);
+      if (kind === 2) {
+        wg.addColorStop(0, '#fff3cf'); wg.addColorStop(0.55, '#ffcf5e'); wg.addColorStop(1, '#c78a1e');
+      } else {
+        wg.addColorStop(0, '#cdeeff'); wg.addColorStop(0.55, '#4ec3f0'); wg.addColorStop(1, '#1d7fb8');
+      }
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y - r * 1.7);
+      ctx.bezierCurveTo(f.x + r * 0.9, f.y - r * 0.7, f.x + r, f.y - r * 0.1, f.x + r, f.y + r * 0.15);
+      ctx.arc(f.x, f.y + r * 0.15, r, 0, Math.PI, false);
+      ctx.bezierCurveTo(f.x - r, f.y - r * 0.1, f.x - r * 0.9, f.y - r * 0.7, f.x, f.y - r * 1.7);
+      ctx.fillStyle = wg; ctx.fill();
+      ctx.beginPath(); ctx.arc(f.x - r * 0.35, f.y - r * 0.1, r * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill();
+    };
+
+    // ---- тело: плавная лента строго в порядке хвост -> голова.
+    // Точки НЕ сортируются по глубине: при довороте камеры порядок
+    // перемешивается, и лента «стреляла» прямой через сферу. Голова
+    // всегда в центре (z=1), поэтому последовательная отрисовка
+    // хвост->голова даёт и правильное перекрытие при самопересечении. ----
+    const bodyPts = [];
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const p = project(trail[i]);
+      if (p.z < -0.12) continue;   // за сферой — не рисуем
+      bodyPts.push(p);
+    }
+    // каждая капля рисуется до тела, если она за ближайшей к ней точкой
+    // тела, и после — если впереди (иначе лента перекрывает её корректно)
+    const foodsBehind = [], foodsFront = [];
+    for (const fp of foodProj) {
+      if (fp.f.z < -0.05) { foodsBehind.push(fp); continue; }
+      let bd = Infinity, bz = 0;
+      for (const p of bodyPts) {
+        const dx = p.x - fp.f.x, dy = p.y - fp.f.y, d2 = dx * dx + dy * dy;
+        if (d2 < bd) { bd = d2; bz = p.z; }
+      }
+      (bd < (R * 0.16) ** 2 && fp.f.z > bz) ? foodsFront.push(fp) : foodsBehind.push(fp);
+    }
+    for (const fp of foodsBehind) drawFood(fp, fp.fo.kind);
+    if (bodyPts.length >= 2) {
+      const head = { x: CX, y: CY, z: 1 };
+      bodyPts.push(head);          // конец — у головы
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      strokeRibbon(bodyPts, R * 0.088);
+    }
+    for (const fp of foodsFront) drawFood(fp, fp.fo.kind);
+
+    // ---- голова: всегда в центре — медный патрубок, без линии направления ----
+    const hr = R * 0.075;
+    const halo = ctx.createRadialGradient(CX, CY, hr * 0.8, CX, CY, hr * 2.4);
+    halo.addColorStop(0, 'rgba(224, 164, 88, 0.18)');
+    halo.addColorStop(1, 'rgba(224, 164, 88, 0)');
+    ctx.beginPath(); ctx.arc(CX, CY, hr * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = halo; ctx.fill();
+
+    const hg = ctx.createRadialGradient(CX - hr * 0.35, CY - hr * 0.35, hr * 0.1, CX, CY, hr);
+    hg.addColorStop(0, '#f0c48c');
+    hg.addColorStop(0.55, '#d99a55');
+    hg.addColorStop(1, '#a56a38');
+    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.fillStyle = hg; ctx.fill();
+    ctx.beginPath(); ctx.arc(CX, CY, hr, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(60, 38, 18, 0.7)';
+    ctx.lineWidth = 1.6; ctx.stroke();
+
+    // глаза — смотрят по D; боковой вектор = P × D (касательный)
+    const side = cross(P, D);
+    const dx = CX + dot(D, vx) * hr * 0.45;
+    const dy = CY - dot(D, vy) * hr * 0.45;
+    const px = CX + dot(side, vx) * hr * 0.38;
+    const py = CY - dot(side, vy) * hr * 0.38;
+    for (const sgn of [1, -1]) {
+      ctx.beginPath();
+      ctx.arc(dx + sgn * px, dy + sgn * py, Math.max(1.2, hr * 0.17), 0, Math.PI * 2);
+      ctx.fillStyle = '#2a1d10'; ctx.fill();
+    }
+
+    // нос (насадка) — выступает вперёд по D: кончик трубы, куда идёт вода.
+    // рисуетСЯ ПЕРЕД кругом головы, чтобы база скрывалась под ним.
+    // Длина ≈ hitDist (0.055 рад): визуально нос касается трубы ровно
+    // в тот момент, когда срабатывает коллизия.
+    const ddx = dot(D, vx), ddy = -dot(D, vy);
+    const noseLen = hr * 0.75, noseW = hr * 0.52;
+    const perpX = -ddy, perpY = ddx;
+    const tipX = CX + ddx * noseLen, tipY = CY + ddy * noseLen;
+    const ng = ctx.createLinearGradient(CX, CY, tipX, tipY);
+    ng.addColorStop(0, '#c8874e');
+    ng.addColorStop(0.6, '#e0b072');
+    ng.addColorStop(1, '#f4d29a');
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(CX + perpX * noseW, CY + perpY * noseW);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(CX - perpX * noseW, CY - perpY * noseW);
+    ctx.closePath();
+    ctx.fillStyle = ng; ctx.fill();
+    ctx.strokeStyle = 'rgba(60, 38, 18, 0.6)';
+    ctx.lineWidth = 1.4; ctx.stroke();
+
+    // ---- брызги (частицы) ----
+    for (const p of particles) {
+      const a = Math.max(0, p.life / 0.8);
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (0.5 + a * 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(120, 214, 250, ' + (a * 0.8).toFixed(3) + ')';
+      ctx.fill();
+    }
+
+    ctx.restore();   // конец трансформации камеры
+
+    // ---- миникарта: плоский срез сферы (видны даже дальние участки) ----
+    drawMinimap();
+  }
+
+  // плоская проекция сферы: (x, z) -> точка в круге; y (высота) -> размер
+  function drawMinimap() {
+    const s = mini.width / DPR;            // логический размер канваса
+    const mCX = s / 2, mR = s * 0.46;
+    mctx.clearRect(0, 0, s, s);
+    // диск
+    mctx.beginPath(); mctx.arc(mCX, mCX, mR, 0, Math.PI * 2);
+    mctx.fillStyle = 'rgba(15, 20, 27, 0.72)'; mctx.fill();
+    mctx.strokeStyle = 'rgba(160, 184, 210, 0.35)';
+    mctx.lineWidth = 1; mctx.stroke();
+    const mp = v => {
+      // x -> вправо, z -> вниз (y = высота кодируем размером точки)
+      return { x: mCX + v.x * mR, y: mCX + v.z * mR, yv: v.y };
+    };
+    // тело: ломаная хвост->голова (голова — последняя, в центре не важна)
+    if (trail.length > 1) {
+      mctx.beginPath();
+      let first = null;
+      for (let i = trail.length - 1; i >= 0; i -= 2) {
+        const p = mp(trail[i]);
+        if (!first) { mctx.moveTo(p.x, p.y); first = p; } else mctx.lineTo(p.x, p.y);
+      }
+      mctx.strokeStyle = 'rgba(217, 154, 85, 0.9)';
+      mctx.lineWidth = 2; mctx.lineCap = 'round'; mctx.stroke();
+    }
+    // голова — медная точка
+    const hp = mp(P);
+    mctx.beginPath(); mctx.arc(hp.x, hp.y, 3.4, 0, Math.PI * 2);
+    mctx.fillStyle = '#f0c48c'; mctx.fill();
+    // капли
+    for (const fo of foods) {
+      const fp = mp(fo.v);
+      mctx.beginPath(); mctx.arc(fp.x, fp.y, fo.kind === 2 ? 3 : 2.2, 0, Math.PI * 2);
+      mctx.fillStyle = fo.kind === 2 ? '#ffcf5e' : '#4ec3f0';
+      mctx.fill();
+    }
+  }
+
+  // ---------- главный цикл ----------
   reset();
-  let last = performance.now();
   function frame(t) {
     let dt = (t - last) / 1000;
     last = t;
-    dt = Math.min(dt, 0.05);
-    const nSub = Math.max(1, Math.ceil(dt / (1 / 120)));
-    for (let i = 0; i < nSub && !over; i++) step(dt / nSub);
+    // Clamp dt to [0, 0.05]: negative dt (after pause/resume when
+    // last=performance.now() runs ahead of the next rAF timestamp) would make
+    // lastSub negative and crash trail.length assignment. Clamp at 0.
+    dt = Math.max(0, Math.min(dt, 0.05));   // защита от рывка после зависшего фрейма
 
-    // smooth rotation of the view basis toward P (damped)
-    const k = 1 - Math.exp(-10 * dt);
-    const th = angBetween(vz, P);
-    if (th > 1e-9) {
-      const ax = norm(cross(vz, P));
-      const s = th * k;
-      const rot = q => add(add(mul(q, Math.cos(s)), mul(cross(ax, q), Math.sin(s))), mul(ax, dot(ax, q) * (1 - Math.cos(s))));
-      vx = norm(rot(vx)); vy = rot(vy); vz = rot(vz);
-      // keep the basis orthonormal
-      vx = norm(sub(vx, mul(vz, dot(vx, vz))));
-      vy = cross(vz, vx);
+    // слоу-мо при аварии плавно возвращается к нормальному времени
+    if (slowmo < 1) slowmo = Math.min(1, slowmo + dt * 1.5);
+    const sdt = dt * slowmo;
+
+    // тряска камеры затухает
+    if (shake > 0) shake = Math.max(0, shake - dt);
+
+    // камера плавно отходит при росте тела, чтобы длинная труба не
+    // «убегала» за край шара (как в Snake Sphere — сфера раскрывается)
+    const targetZoom = Math.min(CAM_ZOOM_MAX, 1 + Math.max(0, bodyArc - 2.2) * 0.12);
+    camZoom += (targetZoom - camZoom) * (1 - Math.exp(-3 * sdt));
+
+    // фиксированный подшаг: стабильная физика на любом FPS
+    const nSub = Math.max(1, Math.ceil(sdt / (1 / 120)));
+    for (let i = 0; i < nSub && !over; i++) step(sdt / nSub);
+
+    // затухание брызг (независимо от паузы — чтобы красиво гасло)
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * sdt;
+      p.y += p.vy * sdt;
+      p.vy += 420 * sdt;          // лёгкая «гравитация» брызг
+      p.vx *= 0.99;
+      p.life -= sdt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // плавный доворот камеры на голову (экспоненциальное демпфирование)
+    if (!paused) {
+      const k = 1 - Math.exp(-10 * dt);
+      const th = angBetween(vz, P);
+      if (th > 1e-9) {
+        const ax = norm(cross(vz, P));
+        const s = th * k;
+        vx = norm(rotAxis(vx, ax, s));
+        vy = rotAxis(vy, ax, s);
+        vz = rotAxis(vz, ax, s);
+        vx = norm(sub(vx, mul(vz, dot(vx, vz))));
+        vy = cross(vz, vx);
+      }
     }
     draw();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // debug-мост: состояние игры для headless-тестов (геймплей не трогает)
+  window.debug = {
+    get score() { return score; },
+    get over() { return over; },
+    get started() { return started; },
+    get paused() { return paused; },
+    get trailLen() { return trail ? trail.length : 0; },
+    get bodyArc() { return bodyArc; },
+    get boosting() { return boosting; },
+    get boostKey() { return boostKey; },
+    get camZoom() { return camZoom; },
+    get shake() { return shake; },
+    get slowmo() { return slowmo; },
+    get foods() { return foods.length; },
+    get foodZs() { return foods.map(fo => { const f = project(fo.v); return { x: f.x, y: f.y, z: f.z }; }); },
+    get trailArc() {
+      if (!trail || trail.length < 2) return 0;
+      let a = 0;
+      for (let i = 1; i < trail.length; i++) a += angBetween(trail[i - 1], trail[i]);
+      return a;
+    },
+    set bodyArc(v) { bodyArc = v; },
+    set boostKey(v) { boostKey = !!v; },
+    start: () => { if (!started && !over) startGame(); },
+    // test-хуки: капля прямо перед головой / принудительный game over
+    placeFoodAhead: (kind) => {
+      const c = norm(add(mul(P, Math.cos(0.22)), mul(D, Math.sin(0.22))));
+      foods.push({ v: c, kind: kind || 0 });
+      return true;
+    },
+    kill: () => { if (!over) { gameOver(); return true; } return false; },
+  };
 })();
 </script>
 </body>
