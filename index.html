@@ -23,45 +23,61 @@
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   canvas { display: block; }
 
-  /* верхняя панель: только цифры */
+  /* верхняя панель: компактные чипы слева; правый край не заходит
+     под миникарту, на узком экране чипы переливаются, а не вылезают */
   #hud {
-    position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%;
-    transform: translateX(-50%);
-    display: flex; gap: 24px; align-items: baseline;
-    font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    position: fixed; top: max(10px, env(safe-area-inset-top));
+    left: 10px;
+    right: calc(10px + var(--mini) + 12px);
+    display: flex; flex-wrap: wrap; gap: 5px;
+    font-size: 11px; letter-spacing: .10em; text-transform: uppercase;
     color: #8fa0b3;
-    background: rgba(15, 20, 27, .55);
-    border: 1px solid rgba(180, 196, 214, .10);
-    border-radius: 999px; padding: 9px 24px;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    user-select: none; white-space: nowrap;
+    user-select: none; pointer-events: none;
+    z-index: 5;
   }
-  #hud b { font-size: 18px; letter-spacing: .04em; color: #e6edf5; font-weight: 600; margin-left: 7px; }
+  #hud span {
+    background: rgba(15, 20, 27, .60);
+    border: 1px solid rgba(180, 196, 214, .10);
+    border-radius: 999px; padding: 5px 11px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap;
+  }
+  #hud b { font-size: 14px; letter-spacing: .04em; color: #e6edf5; font-weight: 600; margin-left: 6px; }
   #hud .rec b { color: #45c8f2; }
+  :root { --mini: 96px; }
   /* кнопка паузы (на мобильном P недоступен) */
   #pauseBtn {
-    all: unset;
-    cursor: pointer;
-    width: 34px; height: 34px;
+    position: fixed;
+    left: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 6;
+    width: 42px; height: 42px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 50%;
     border: 1px solid rgba(180, 196, 214, .25);
-    background: rgba(69, 200, 242, .08);
+    background: rgba(69, 200, 242, .10);
     color: #bfe9fb;
-    font-size: 14px;
-    flex: 0 0 auto;
+    font-size: 16px;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
   }
   #pauseBtn:active { background: rgba(69, 200, 242, .28); }
 
   /* миникарта: обзор всей сферы (видны и дальние участки тела) */
   #minimap {
     position: fixed; top: max(10px, env(safe-area-inset-top)); right: 12px;
-    width: 110px; height: 110px;
+    width: var(--mini); height: var(--mini);
     opacity: .92;
     pointer-events: none;
     z-index: 5;
   }
-  @media (max-width: 600px) { #minimap { width: 84px; height: 84px; } }
+  @media (max-width: 600px) {
+    :root { --mini: 78px; }
+  }
+  @media (max-width: 380px) {
+    #minimap { display: none; }
+    #hud { right: 10px; }
+  }
 
   /* оверлей смерти/паузы/старта */
   #overlay {
@@ -87,10 +103,10 @@
 <div id="wrap"><canvas id="c"></canvas></div>
 <div id="hud">
   <span>длина<b id="score">0.0</b> м</span>
-  <span>капли<b id="len">0</b></span>
   <span class="rec">рекорд<b id="rec">0.0</b> м</span>
-  <button id="pauseBtn" title="Пауза (P)">⏸</button>
+  <span class="drops">капли<b id="len">0</b></span>
 </div>
+<button id="pauseBtn" title="Пауза (P)">⏸</button>
 <canvas id="minimap"></canvas>
 <div id="overlay">
   <div class="t" id="ovTitle">Змейка-Монтажник</div>
@@ -139,9 +155,10 @@
     add(add(mul(q, Math.cos(a)), mul(cross(ax, q), Math.sin(a))), mul(ax, dot(ax, q) * (1 - Math.cos(a))));
 
   // ---------- параметры ----------
-  const SPEED     = 1.10;  // рад/с — базовая скорость змеи по сфере (~5.7 с на круг)
-  const SPEED_PER_POINT = 0.015; // рад/с прироста скорости за очко счёта
-  const SPEED_MAX = 1.50;  // рад/с — потолок ускорения со счётом
+  const SPEED     = 1.10;  // рад/с — скорость по сфере (~5.7 с на круг).
+                            // 17.08: рост со счётом (до 1.5 рад/с) убран — к
+                            // середине заезда целиться на капли было уже
+                            // невозможно; сложность теперь дают течь и длина
   const TURN      = 4.6;   // рад/с — предельная скорость поворота
   const TURN_RAMP = 10.0;  // рад/с² — разгон/торможение руля: 16 дёргало на таче
   const SEG_ARC   = 0.22;  // дуга одного сегмента тела (радианы)
@@ -162,10 +179,14 @@
   // Темп растёт с длиной — длинная разводка = больше соединений = быстрее
   // подтекает. Тает до LEAK_MIN и дальше не укорачивается: труба
   // «сжимается» в короткий отрезок, а не исчезает.
-  const LEAK_BASE = 0.004; // рад/с — фон: короткая труба почти не течёт
-  const LEAK_LEN  = 0.030; // рад/с на рад длины — длиннее разводка, быстрее потёк
+  const LEAK_BASE = 0.002; // рад/с — фон: короткая труба почти не течёт
+  const LEAK_LEN  = 0.018; // рад/с на рад длины — длиннее разводка, быстрее потёк
+  // 17.08: было 0.004/0.030 — на длине 14 м течь съедала ~2.6 капли в
+  // секунду, «длина быстро расходуется» и рост не ощущался; теперь на
+  // максимуме ~1.6 капли/с: течь — давление, а не казнь
   const LEAK_MIN  = START_ARC * 0.5; // 0.11 рад: труба сжимается, но не исчезает
-  const FOOD_N     = 3;    // капель на сфере одновременно
+  const FOOD_N     = 4;    // капель на сфере одновременно (17.08: было 3 —
+                            // после съеденной часто не на что было целиться)
   const FOOD_R     = 0.11; // радиус сбора капли
   const MAX_PARTICLES = 300; // потолок частиц (слабые телефоны: GC-давление)
   const CAM_RAMP   = 0.9;  // рад/с — темп отдаления камеры за длиной
@@ -247,6 +268,7 @@
     turnVel = 0;
     boosting = false;
     boostKey = false;
+    steer = 0; steerId = null; steerBaseX = null; // drag-руль: с нуля
     shake = 0;
     slowmo = 1;
     camZoom = 1;
@@ -268,10 +290,12 @@
 
   function showStart() {
     elOvT.textContent = 'Змейка-Монтажник';
-    elOvS.innerHTML = 'Левая / правая половина экрана — поворот.<br>' +
-      'Съедай капли воды и расти, но не кусай себя в хвост:<br>каждый поворот оставляет за тобой медный трубопровод.<br><br>' +
+    elOvS.innerHTML = '<b>Руление — пальцем:</b> положи палец и сдвигай вбок —<br>' +
+      'скольнем, так и поворот: чуть-чуть — микрокоррекция, сильно — разворот.<br>' +
+      'Отпусти сдвиг — едешь прямо. Стрелки по краю — капли за сферой.<br>' +
+      'Съедай капли и расти, но не кусай себя в хвост: повороты оставляют медный трубопровод.<br><br>' +
       '<b>Счёт = длина твоей трубы в метрах.</b> Рекорд держит самую длинную разводку.<br>' +
-      '<b>Два пальца — буст:</b> труба разгоняется, но подтекает.<br>' +
+      '<b>Два пальца — буст:</b> разгон, но труба подтекает.<br>' +
       'Труба всё время подтекает — пей капли, держи разводку.<br>' +
       'Золотая капля = +3 капли и отрыв по длине.';
     elBtn.textContent = 'К работе';
@@ -336,44 +360,68 @@
     if (e.code === 'ArrowRight' || e.code === 'KeyD') key.R = false;
     if (['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyF'].includes(e.code)) boostKey = false;
   });
-  // правая кнопка мыши = буст
-  addEventListener('mousedown', e => { if (e.button === 2) boostKey = true; });
-  addEventListener('mouseup',   e => { if (e.button === 2) boostKey = false; });
+  // правая кнопка мыши = буст; левая — drag-руль (то же, что палец)
+  let mouseSteerX = null;
+  addEventListener('mousedown', e => {
+    if (e.button === 2) boostKey = true;
+    if (e.button === 0 && started) { mouseSteerX = e.clientX; }
+  });
+  addEventListener('mousemove', e => {
+    if (mouseSteerX === null) return;
+    steer = Math.max(-1, Math.min(1, (e.clientX - mouseSteerX) / STEER_MAXPX()));
+    key.L = steer < -0.12; key.R = steer > 0.12;
+  });
+  addEventListener('mouseup', e => {
+    if (e.button === 2) boostKey = false;
+    if (e.button === 0) { mouseSteerX = null; steer = 0; key.L = key.R = false; }
+  });
   addEventListener('contextmenu', e => e.preventDefault());
 
-  // сенсор: левая половина экрана — поворот влево, правая — вправо.
-  // Палец-руль закреплён по identifier: его назначает ТОЛЬКО touchstart
-  // (при пустом руле). Второй палец — только буст: он никогда не забирает
-  // руль, поэтому при отпускании пальца-руля поворот плавно останавливается,
-  // а не «перескакивает» в сторону буст-пальца.
+  // сенсор — ПРОПОРЦИОНАЛЬНЫЙ drag-руль (подход mobile-шутеров/раннеров:
+  // сила ввода = сила действия, а не «половина экрана = полный вращ»).
+  // Палец кладёшь — едешь прямо; сдвигаешь вбок — поворачиваешь ровно на
+  // величину сдвига (полный поворот на ~1/4 экрана). Так и микрокоррекция
+  // перед каплей, и резкий разворот. Палец-руль закреплён по identifier:
+  // назначает ТОЛЬКО touchstart (при пустом руле). Второй палец — только
+  // буст: никогда не забирает руль, поэтому при отпускании пальца-руля
+  // поворот плавно останавливается, а не «перескакивает» в сторону буст-пальца.
+  let steer = 0;          // текущий «рычаг» руля: −1..0..+1 (0 = прямо)
+  let steerBaseX = null;  // экранная X, где положили палец-руль
+  const STEER_MAXPX = () => Math.min(innerWidth * 0.28, 160); // полный вынос
+  const steerFrom = clientX =>
+    Math.max(-1, Math.min(1, (clientX - steerBaseX) / STEER_MAXPX()));
   const setTouch = e => {
     const n = e.touches.length;
     // два пальца — буст (в step() действует только после START_ARC)
     boostKey = n >= 2;
-    if (n === 0) { key.L = key.R = false; steerId = null; return; }
+    if (n === 0) { key.L = key.R = false; steer = 0; steerId = null; steerBaseX = null; return; }
     // ищем закреплённый палец-руль среди активных
-    let steer = null;
+    let t = null;
     if (steerId !== null) {
       for (let i = 0; i < n; i++) {
-        if (e.touches[i].identifier === steerId) { steer = e.touches[i]; break; }
+        if (e.touches[i].identifier === steerId) { t = e.touches[i]; break; }
       }
     }
-    if (steer) {
-      key.L = steer.clientX < innerWidth / 2;
-      key.R = !key.L;
+    if (t) {
+      steer = steerFrom(t.clientX);
+      key.L = steer < -0.12; key.R = steer > 0.12;
     } else {
       // палец-руль отпущен: руль пуст (перепривязка — только на touchstart)
-      key.L = key.R = false;
-      steerId = null;
+      key.L = key.R = false; steer = 0; steerId = null; steerBaseX = null;
     }
   };
   addEventListener('touchstart', e => {
-    if (!started) { startGame(); return; } // первый тап запускает
+    // первый тап запускает игру и НЕ возвращается: тот же палец
+    // сразу становится пальцем-рулём — «прижал и поехал», без
+    // мёртвого тапа. (17.08: было return — после старта drag-руль
+    // не работал до следующего касания.)
+    if (!started) startGame();
     // если на паузе — первый тап её снимает, иначе это уже руление
     if (paused && !over) { togglePause(); return; }
     // новый палец при пустом руле становится пальцем-рулём
     if (steerId === null && e.changedTouches.length) {
       steerId = e.changedTouches[0].identifier;
+      steerBaseX = e.changedTouches[0].clientX;
     }
     setTouch(e); e.preventDefault();
   }, { passive: false });
@@ -381,7 +429,7 @@
   addEventListener('touchend', e => { setTouch(e); }, { passive: false });
   // touchcancel — система оборвала касание (звонок/уведомление):
   // без него руль «залипает» и змейка вращается вхолостую вечно
-  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; steerId = null; });
+  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; steerId = null; steer = 0; steerBaseX = null; });
 
   // тап по экрану при смерти — заново
   addEventListener('click', () => { if (over) { reset(); startGame(); } });
@@ -421,8 +469,10 @@
   function step(dt) {
     if (over || paused) return;
 
-    // плавный руль: скорость поворота разгоняется/тормозится без рывков
-    const target = (key.R ? 1 : 0) - (key.L ? 1 : 0);
+    // плавный руль: скорость поворота разгоняется/тормозится без рывков.
+    // target — от drag-руля (пропорционально выносу пальца, −1..+1),
+    // иначе — клавиши (бинарные ±1).
+    const target = Math.abs(steer) > 0.12 ? steer : (key.R ? 1 : 0) - (key.L ? 1 : 0);
     const rate = TURN_RAMP * dt;
     if (turnVel < target * TURN)      turnVel = Math.min(target * TURN, turnVel + rate);
     else if (turnVel > target * TURN) turnVel = Math.max(target * TURN, turnVel - rate);
@@ -438,8 +488,8 @@
       // без него правая половина вела нос влево.
       D = norm(rotAxis(D, P, -turnVel * dt));
     }
-    // движение по большому кругу: разгон со счётом, буст — кратковременно ещё быстрее
-    let sp = Math.min(SPEED_MAX, SPEED + score * SPEED_PER_POINT);
+    // движение по большому кругу; буст — кратковременно ещё быстрее
+    let sp = SPEED;
     boosting = !!boostKey && bodyArc > START_ARC + 1e-6;
     if (boosting) {
       sp *= BOOST_MULT;
@@ -852,6 +902,33 @@
       ctx.fill();
     }
 
+    // ---- стрелки на еду за сферой (17.08): off-screen indicator —
+    // стандарт mobile-гейма. Капля на дальней стороне (z < 0) видна только
+    // по миникарте; стрелка на ободе показывает, куда крутить, чтобы довести
+    // её в кадр. Золотая — крупнее и жёлтая.
+    for (const fo of foods) {
+      const fp = project(fo.v);
+      if (fp.z >= -0.02) continue; // в кадре/на границе — стрелка не нужна
+      const dx = fp.x - CX, dy = fp.y - CY;
+      const l = Math.hypot(dx, dy) || 1;
+      const ax = CX + dx / l * R * 0.94;
+      const ay = CY + dy / l * R * 0.94;
+      const ang = Math.atan2(dy, dx);
+      const s = fo.kind === 2 ? 11 : 8;
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(s, 0);
+      ctx.lineTo(-s * 0.7, s * 0.62);
+      ctx.lineTo(-s * 0.35, 0);
+      ctx.lineTo(-s * 0.7, -s * 0.62);
+      ctx.closePath();
+      ctx.fillStyle = fo.kind === 2 ? 'rgba(255, 212, 94, 0.92)' : 'rgba(78, 195, 240, 0.85)';
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.restore();   // конец трансформации камеры
 
     // ---- миникарта: плоский срез сферы (видны даже дальние участки) ----
@@ -969,15 +1046,21 @@
     get trailLen() { return trail ? trail.length : 0; },
     get bodyArc() { return bodyArc; },
     get boosting() { return boosting; },
+    get moveSpeed() { return boosting ? SPEED * BOOST_MULT : SPEED; },
+    get leakRateM() { return (LEAK_BASE + LEAK_LEN * bodyArc) * R_SPHERE_M; },
     get leakRate() { return LEAK_BASE + LEAK_LEN * bodyArc; },
     get boostKey() { return boostKey; },
     get keyL() { return key.L; },
     get keyR() { return key.R; },
+    get steer() { return steer; },
     get steerId() { return steerId; },
+    get theta() { return Math.atan2(D.y, D.x); },
+    get turnVel() { return turnVel; },
     get camZoom() { return camZoom; },
     get shake() { return shake; },
     get slowmo() { return slowmo; },
     get foods() { return foods.length; },
+    get foodBehind() { return foods.filter(fo => project(fo.v).z < -0.02).length; },
     get foodZs() { return foods.map(fo => { const f = project(fo.v); return { x: f.x, y: f.y, z: f.z }; }); },
     get trailArc() {
       if (!trail || trail.length < 2) return 0;
@@ -991,6 +1074,14 @@
     // test-хуки: капля прямо перед головой / принудительный game over
     placeFoodAhead: (kind) => {
       const c = norm(add(mul(P, Math.cos(0.22)), mul(D, Math.sin(0.22))));
+      foods.push({ v: c, kind: kind || 0 });
+      return true;
+    },
+    // test-хук: капля строго за сферой (z < 0) — для проверки стрелки-указателя
+    placeFoodFar: (kind) => {
+      let c = V(0, 0, -1);
+      if (Math.abs(dot(c, P)) > 0.9) c = V(0.9, 0, -0.44);
+      c = norm(c);
       foods.push({ v: c, kind: kind || 0 });
       return true;
     },
