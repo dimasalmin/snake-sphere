@@ -159,8 +159,11 @@
                             // 17.08: рост со счётом (до 1.5 рад/с) убран — к
                             // середине заезда целиться на капли было уже
                             // невозможно; сложность теперь дают течь и длина
-  const TURN      = 4.6;   // рад/с — предельная скорость поворота
-  const TURN_RAMP = 10.0;  // рад/с² — разгон/торможение руля: 16 дёргало на таче
+  const TURN      = 2.2;   // рад/с — скорость поворота: постоянная, без разгона
+  const TURN_OFF  = 30.0;  // рад/с² — короткий «хвост» при отпускании руля
+  // 17.08: «ускорение при повороте» — это был разгон TURN_RAMP и разворот
+  // через ноль (гасится → снова разгоняется). Теперь поворот мгновенный,
+  // со скоростью TURN, и прямой ход SPEED постоянный — сцена предсказуема.
   const SEG_ARC   = 0.22;  // дуга одного сегмента тела (радианы)
   const GOLD_ARC  = 0.30;  // золотая капля «откладывает» больше обычного сегмента
   const START_SEG = 2;     // стартовая длина в сегментах; +1 сегмент за каплю
@@ -268,7 +271,7 @@
     turnVel = 0;
     boosting = false;
     boostKey = false;
-    steer = 0; steerId = null; steerBaseX = null; // drag-руль: с нуля
+    steerId = null; // палец-руль: с нуля (принцип половин экрана)
     shake = 0;
     slowmo = 1;
     camZoom = 1;
@@ -290,9 +293,10 @@
 
   function showStart() {
     elOvT.textContent = 'Змейка-Монтажник';
-    elOvS.innerHTML = '<b>Руление — пальцем:</b> положи палец и сдвигай вбок —<br>' +
-      'скольнем, так и поворот: чуть-чуть — микрокоррекция, сильно — разворот.<br>' +
-      'Отпусти сдвиг — едешь прямо. Стрелки по краю — капли за сферой.<br>' +
+    elOvS.innerHTML = '<b>Руление — пальцем:</b> держи левую половину экрана —<br>' +
+      'крутит влево, правую — вправо, отпусти — прямо.<br>' +
+      'Поворот всегда одной и той же скоростью — без разгона.<br>' +
+      'Стрелки по краю — капли за сферой.<br>' +
       'Съедай капли и расти, но не кусай себя в хвост: повороты оставляют медный трубопровод.<br><br>' +
       '<b>Счёт = длина твоей трубы в метрах.</b> Рекорд держит самую длинную разводку.<br>' +
       '<b>Два пальца — буст:</b> разгон, но труба подтекает.<br>' +
@@ -360,41 +364,32 @@
     if (e.code === 'ArrowRight' || e.code === 'KeyD') key.R = false;
     if (['ShiftLeft', 'ShiftRight', 'KeyW', 'KeyF'].includes(e.code)) boostKey = false;
   });
-  // правая кнопка мыши = буст; левая — drag-руль (то же, что палец)
-  let mouseSteerX = null;
+  // правая кнопка мыши = буст; левая — руль половинами (то же, что палец)
+  let mouseDown = false;
+  const mouseSteer = x => { key.L = x < innerWidth / 2; key.R = !key.L; };
   addEventListener('mousedown', e => {
     if (e.button === 2) boostKey = true;
-    if (e.button === 0 && started) { mouseSteerX = e.clientX; }
+    if (e.button === 0 && started) { mouseDown = true; mouseSteer(e.clientX); }
   });
-  addEventListener('mousemove', e => {
-    if (mouseSteerX === null) return;
-    steer = Math.max(-1, Math.min(1, (e.clientX - mouseSteerX) / STEER_MAXPX()));
-    key.L = steer < -0.12; key.R = steer > 0.12;
-  });
+  addEventListener('mousemove', e => { if (mouseDown) mouseSteer(e.clientX); });
   addEventListener('mouseup', e => {
     if (e.button === 2) boostKey = false;
-    if (e.button === 0) { mouseSteerX = null; steer = 0; key.L = key.R = false; }
+    if (e.button === 0) { mouseDown = false; key.L = key.R = false; }
   });
   addEventListener('contextmenu', e => e.preventDefault());
 
-  // сенсор — ПРОПОРЦИОНАЛЬНЫЙ drag-руль (подход mobile-шутеров/раннеров:
-  // сила ввода = сила действия, а не «половина экрана = полный вращ»).
-  // Палец кладёшь — едешь прямо; сдвигаешь вбок — поворачиваешь ровно на
-  // величину сдвига (полный поворот на ~1/4 экрана). Так и микрокоррекция
-  // перед каплей, и резкий разворот. Палец-руль закреплён по identifier:
-  // назначает ТОЛЬКО touchstart (при пустом руле). Второй палец — только
-  // буст: никогда не забирает руль, поэтому при отпускании пальца-руля
-  // поворот плавно останавливается, а не «перескакивает» в сторону буст-пальца.
-  let steer = 0;          // текущий «рычаг» руля: −1..0..+1 (0 = прямо)
-  let steerBaseX = null;  // экранная X, где положили палец-руль
-  const STEER_MAXPX = () => Math.min(innerWidth * 0.28, 160); // полный вынос
-  const steerFrom = clientX =>
-    Math.max(-1, Math.min(1, (clientX - steerBaseX) / STEER_MAXPX()));
+  // сенсор — руль половинами экрана (принцип с 15.08, возвращён 17.08):
+  // держишь левую половину — крутит влево, правую — вправо, отпустил — прямо.
+  // Палец-руль закреплён по identifier и может скользить — можно двигать
+  // пальцем внутри половины. Скорость поворота постоянная (TURN), без разгона.
+  // Второй палец — только буст: никогда не забирает руль, поэтому при
+  // отпускании пальца-руля поворот плавно останавливается, а не
+  // «перескакивает» в сторону буст-пальца.
   const setTouch = e => {
     const n = e.touches.length;
     // два пальца — буст (в step() действует только после START_ARC)
     boostKey = n >= 2;
-    if (n === 0) { key.L = key.R = false; steer = 0; steerId = null; steerBaseX = null; return; }
+    if (n === 0) { key.L = key.R = false; steerId = null; return; }
     // ищем закреплённый палец-руль среди активных
     let t = null;
     if (steerId !== null) {
@@ -403,25 +398,24 @@
       }
     }
     if (t) {
-      steer = steerFrom(t.clientX);
-      key.L = steer < -0.12; key.R = steer > 0.12;
+      key.L = t.clientX < innerWidth / 2;
+      key.R = !key.L;
     } else {
       // палец-руль отпущен: руль пуст (перепривязка — только на touchstart)
-      key.L = key.R = false; steer = 0; steerId = null; steerBaseX = null;
+      key.L = key.R = false;
+      steerId = null;
     }
   };
   addEventListener('touchstart', e => {
     // первый тап запускает игру и НЕ возвращается: тот же палец
     // сразу становится пальцем-рулём — «прижал и поехал», без
-    // мёртвого тапа. (17.08: было return — после старта drag-руль
-    // не работал до следующего касания.)
+    // мёртвого тапа.
     if (!started) startGame();
     // если на паузе — первый тап её снимает, иначе это уже руление
     if (paused && !over) { togglePause(); return; }
     // новый палец при пустом руле становится пальцем-рулём
     if (steerId === null && e.changedTouches.length) {
       steerId = e.changedTouches[0].identifier;
-      steerBaseX = e.changedTouches[0].clientX;
     }
     setTouch(e); e.preventDefault();
   }, { passive: false });
@@ -429,7 +423,8 @@
   addEventListener('touchend', e => { setTouch(e); }, { passive: false });
   // touchcancel — система оборвала касание (звонок/уведомление):
   // без него руль «залипает» и змейка вращается вхолостую вечно
-  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; steerId = null; steer = 0; steerBaseX = null; });
+  addEventListener('touchcancel', () => { key.L = key.R = false; boostKey = false; steerId = null; });
+
 
   // тап по экрану при смерти — заново
   addEventListener('click', () => { if (over) { reset(); startGame(); } });
@@ -469,13 +464,15 @@
   function step(dt) {
     if (over || paused) return;
 
-    // плавный руль: скорость поворота разгоняется/тормозится без рывков.
-    // target — от drag-руля (пропорционально выносу пальца, −1..+1),
-    // иначе — клавиши (бинарные ±1).
-    const target = Math.abs(steer) > 0.12 ? steer : (key.R ? 1 : 0) - (key.L ? 1 : 0);
-    const rate = TURN_RAMP * dt;
-    if (turnVel < target * TURN)      turnVel = Math.min(target * TURN, turnVel + rate);
-    else if (turnVel > target * TURN) turnVel = Math.max(target * TURN, turnVel - rate);
+    // Руль с постоянной скоростью (17.08): нажал — сразу крутит с TURN,
+    // разворот — мгновенная смена, отпустил — короткий «хвост» без рывка.
+    const target = (key.R ? 1 : 0) - (key.L ? 1 : 0);
+    if (target !== 0) {
+      turnVel = target * TURN;
+    } else {
+      const d = TURN_OFF * dt;
+      turnVel = Math.abs(turnVel) <= d ? 0 : turnVel - Math.sign(turnVel) * d;
+    }
 
     if (turnVel !== 0) {
       // Осью поворота служит радиус P (НЕ D×P): вращение D вокруг P
@@ -1052,8 +1049,15 @@
     get boostKey() { return boostKey; },
     get keyL() { return key.L; },
     get keyR() { return key.R; },
-    get steer() { return steer; },
     get steerId() { return steerId; },
+
+    // debug-снапшот D для честного угла поворота (истинная дуга, не проекция)
+    _capD: null,
+    capD() { this._capD = { x: D.x, y: D.y, z: D.z }; },
+    angleD() {
+      const c = this._capD; if (!c) return 0;
+      return Math.acos(Math.max(-1, Math.min(1, c.x * D.x + c.y * D.y + c.z * D.z)));
+    },
     get theta() { return Math.atan2(D.y, D.x); },
     get turnVel() { return turnVel; },
     get camZoom() { return camZoom; },
