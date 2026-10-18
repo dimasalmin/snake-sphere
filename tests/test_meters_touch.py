@@ -3,9 +3,10 @@
 Метрика в метрах: mLen = arc * R (R=5). START_ARC=0.22 -> 1.1 m; капля +0.22 рад -> +1.1 м."""
 import json
 import re
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-URL = "file:///home/user/snake-sphere/index.htm" + "l"
+URL = (Path(__file__).resolve().parents[1] / "index.html").as_uri()
 PASS, FAIL = [], []
 
 

@@ -4,10 +4,10 @@
 TURN=4.6, TURN_RAMP=10, LEAK=(0.002+0.018*arc) рад/с, BOOST 1.6x,
 STEER_MAXPX = min(390*0.28, 160) = 109.2 px на полный вынос."""
 import json
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-B = "file:///home/user" + "/snake-sphere"
-URL = B + "/index" + ".html"
+URL = (Path(__file__).resolve().parents[1] / "index.html").as_uri()
 W, H = 390, 844
 MAXPX = min(W * 0.28, 160)
 results = []

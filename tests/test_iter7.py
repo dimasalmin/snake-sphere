@@ -3,10 +3,10 @@
 Параметры: SPEED=1.1 рад/с (фикс), TURN=2.2 рад/с (мгновенно, без TURN_RAMP),
 хвост отпуска 30 рад/с^2 (~73мс до нуля), буст 1.6x, START_ARC=0.22, R=5м.
 Экран 390x844: центр X=195; левая половина <195, правая >195."""
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-B = "file:///home/user" + "/snake-sphere"
-URL = B + "/index" + ".html"
+URL = (Path(__file__).resolve().parents[1] / "index.html").as_uri()
 W, H = 390, 844
 TURN = 2.2
 results = []
